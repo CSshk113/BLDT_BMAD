@@ -7,7 +7,7 @@ paradigm: 'Layered Modular Monolith with Pipes-and-Filters Document Pipeline'
 scope: 'Evidence-Based Recruitment Handoff System (Calibration Gate, Evidence Extraction & Split-View, Multi-Reviewer Handoff Card)'
 status: draft
 created: '2026-08-26'
-updated: '2026-08-26'
+updated: '2026-08-27'
 binds:
   - FR-001
   - FR-002
@@ -21,12 +21,18 @@ binds:
   - FR-010
   - FR-011
   - FR-012
+  - FR-012a
+  - FR-012b
   - FR-013
   - FR-014
   - FR-015
   - FR-016
   - FR-017
   - FR-018
+  - FR-019
+  - FR-020
+  - FR-021
+  - FR-022
 sources:
   - _bmad-output/planning-artifacts/prds/prd-Zero100_Builderthon-2026-08-25/prd.md
 companions:
@@ -37,7 +43,7 @@ companions:
 
 ## Design Paradigm
 
-본 시스템은 **계층형 모듈러 모놀리스(Layered Modular Monolith)**를 기본 골격으로 하고, 비정형 이력서 PDF 파싱 및 인용구 추출 영역에는 **파이프-필터(Pipes-and-Filters)** 파이프라인을 적용한다.
+본 시스템은 **계층형 모듈러 모놀리스(Layered Modular Monolith)**를 기본 골격으로 하고, PDF 입력을 Markdown으로 정규화한 뒤 근거를 추출하는 영역에는 **파이프-필터(Pipes-and-Filters)** 파이프라인을 적용한다.
 
 ```mermaid
 graph TD
@@ -55,9 +61,9 @@ graph TD
     end
 
     subgraph Pipeline [Pipes & Filters Extraction Pipeline]
-        P1[PDF Ingestion / PyMuPDF] --> P2[Text & Coord Indexer]
-        P2 --> P3[LLM Grounded Extractor]
-        P3 --> P4[Coordinate Alignment & Fallback]
+        P1[PDF Ingestion] --> P2[LlamaParse / Markdown Normalizer]
+        P2 --> P3[LLM Grounded Extractor / gpt-5.6-luna]
+        P3 --> P4[Location Resolver & Snippet Fallback]
     end
 
     subgraph Storage [Persistence Layer - SQLite / Local Store]
@@ -87,12 +93,12 @@ graph TD
   1. 모든 `EvidenceMapping`, `ReviewLog`, `HandoffCard`는 반드시 불변 식별자인 `criteria_version_id`를 외래 키로 참조해야 한다.
   2. `CriteriaVersion.status != 'APPROVED'`인 경우, `preview_mode = true` 워터마크가 강제되며 공식 `HandoffCard` 생성 API 호출은 `HTTP 403 / 422`로 차단된다.
 
-### AD-2 — 엄격한 원문 역추적 및 좌표 Fallback 보증 [ADOPTED]
+### AD-2 — Markdown 원문 역추적 및 위치 Fallback 보증 [ADOPTED]
 - **Binds:** FR-006, FR-007, FR-008, FR-010
 - **Prevents:** LLM의 환각 요약문이 근거로 제시되거나, PDF 내 위치를 찾지 못해 검토자가 원문 대조를 포기하는 상황 방지.
 - **Rule:** 
-  1. LLM 출력 근거는 원문 텍스트의 부분 문자열(Exact Substring)과 100% 일치해야 하며, 서버는 파싱된 텍스트 인덱스에서 `exact match`를 검증한 후 저장한다.
-  2. 매핑 결과는 `{ page_number, snippet, bounding_box: { x, y, w, h } }` 구조를 가진다. PDF 렌더링 엔진에서 좌표 파싱이 불가능하거나 실패할 경우, 클라이언트는 즉시 `{ snippet, page_number, context_box }` 텍스트 블록으로 자동 Fallback 렌더링한다.
+  1. LLM 출력 근거는 LlamaParse가 반환한 Markdown 원문의 부분 문자열(Exact Substring)과 100% 일치해야 하며, 서버는 정규화 텍스트 인덱스에서 `exact match`를 검증한 후 저장한다.
+  2. 원본 PDF와 변환 Markdown은 같은 `application_id`로 연결한다. 매핑 결과는 `{ page_number?, markdown_block_id, snippet, location?, bounding_box? }` 구조를 가진다. 페이지·좌표를 확인할 수 없으면 클라이언트는 즉시 `{ snippet, context_box }` 텍스트 블록으로 자동 Fallback 렌더링한다.
 
 ### AD-3 — 검토자 독립성 및 결정론적 충돌 계산 [ADOPTED]
 - **Binds:** FR-002, FR-003, FR-013, FR-015
@@ -106,7 +112,7 @@ graph TD
 - **Prevents:** 우측 기준 패널의 인용구 클릭 시 좌측 PDF 뷰어의 스크롤 및 하이라이트 동기화가 어긋나거나 지연되는 현상 방지.
 - **Rule:** 
   1. 클라이언트 상태는 `active_citation_id`를 단일 진실 공급원(Single Source of Truth)으로 관리한다.
-  2. 우측 기준 카드의 인용구 태그 클릭 시, 좌측 PDF 뷰어로 `{ page, bbox, snippet }` 포커스 이벤트가 발행되어 해당 페이지로 즉시 점프 및 하이라이트 박스가 활성화된다.
+  2. 우측 기준 카드의 인용구 태그 클릭 시, 좌측 PDF 뷰어로 `{ page?, bbox?, snippet, markdown_block_id }` 포커스 이벤트가 발행된다. 페이지·좌표가 있으면 점프 및 하이라이트를 제공하고, 없으면 스니펫·주변 문맥을 표시한다.
 
 ---
 
@@ -131,8 +137,9 @@ graph TD
 | **PDF Rendering** | `@react-pdf-viewer/core` / PDF.js | 3.11.x | 웹 브라우저 내 PDF 뷰어 및 바운딩 박스 하이라이트 |
 | **Backend API** | FastAPI | 0.115.x | REST API 라우팅, 비동기 파이프라인 제어 |
 | **Data Validation** | Pydantic | v2.10.x | 요청/응답 스키마 및 LLM Structured Outputs 검증 |
-| **PDF Engine** | PyMuPDF (`fitz`) | 1.25.x | 고속 텍스트 추출, 페이지/라인별 Bounding Box 좌표 생성 |
-| **LLM Provider** | OpenAI API (`gpt-4o-mini`) | 2026 API | 구조화된 JSON 모드를 통한 근거 인용구 및 상태 추출 |
+| **Document Parser** | LlamaParse API | Account-configured | PDF를 근거 매핑용 Markdown으로 변환 |
+| **Location Resolver** | Application service | MVP | Markdown block·페이지·문맥·선택적 BBox를 연결하고 실패 시 fallback |
+| **LLM Provider** | OpenAI API (`gpt-5.6-luna`) | 2026 API | 구조화된 JSON 모드를 통한 근거 인용구 및 상태 추출 |
 | **Database** | SQLite + SQLAlchemy 2.0 (or SQLModel) | 3.45+ | 5일 해커톤 데모용 무설치 로컬 관계형 DB |
 
 ---
@@ -162,10 +169,10 @@ sequenceDiagram
     API->>DB: CriteriaVersion status=APPROVED 고정
 
     Note over Web, Pipeline: 2단계: 지원서 파싱 및 근거 매핑
-    Web->>API: POST /api/applications/upload (20건 PDF)
-    API->>Pipeline: PyMuPDF 텍스트 & BBox 좌표 인덱싱
-    Pipeline->>Pipeline: LLM 기준 대조 및 인용구 Substring 매핑
-    Pipeline->>DB: EvidenceMapping 저장 (Page, BBox, Snippet)
+    Web->>API: POST /api/applications/upload (PDF 입력 묶음)
+    API->>Pipeline: PDF 원본을 LlamaParse로 Markdown 변환
+    Pipeline->>Pipeline: gpt-5.6-luna 기준 대조 및 Markdown Substring 매핑
+    Pipeline->>DB: PDF·Markdown·EvidenceMapping 저장 (Page?, Block, BBox?, Snippet)
 
     Note over HR, Dev: 3단계: 스플릿 뷰 검토 & 핸드오프
     Dev->>Web: 지원서 검토 (스플릿 뷰 클릭)
@@ -236,8 +243,8 @@ BLDT_BMAD/
 │   │   ├── core/             # Config, DB connection, Base Models
 │   │   ├── models/           # SQLAlchemy Models (Schema)
 │   │   ├── services/         # Business Logic (Calibration, LLM Extractor, Handoff)
-│   │   ├── pipeline/         # PDF Parsing (PyMuPDF), Coordinate Aligners
-│   │   └── mock_data/        # 20 Synthetic Candidate Resumes (PDF & JSON)
+│   │   ├── pipeline/         # LlamaParse, Markdown Normalizer, Location Resolver
+│   │   └── fixtures/          # 발표·교정용 입력 fixture (수량 deferred)
 │   ├── tests/
 │   └── requirements.txt
 ├── frontend/                 # Next.js 15 Frontend
@@ -259,8 +266,8 @@ BLDT_BMAD/
 | Capability (PRD) | Implementation Component | Governance & AD |
 | :--- | :--- | :--- |
 | **F1. 기준 교정 게이트** (FR-001~005) | `backend/app/services/calibration.py`<br>`frontend/src/app/calibration/` | **AD-1**, **AD-3** |
-| **F2. 근거 매핑 자격 대조기** (FR-006~012) | `backend/app/pipeline/pdf_extractor.py`<br>`frontend/src/components/SplitView/` | **AD-2**, **AD-4** |
-| **F3. 공동 판단 & 핸드오프 카드** (FR-013~018) | `backend/app/services/handoff.py`<br>`frontend/src/app/handoff/` | **AD-1**, **AD-3** |
+| **F2. 근거 매핑 자격 대조기** (FR-006~012b) | `backend/app/pipeline/llamaparse_client.py`<br>`backend/app/pipeline/markdown_normalizer.py`<br>`frontend/src/components/SplitView/` | **AD-2**, **AD-4** |
+| **F3. 공동 판단 & 핸드오프 카드** (FR-013~022) | `backend/app/services/handoff.py`<br>`backend/app/services/interview_questions.py`<br>`frontend/src/app/handoff/` | **AD-1**, **AD-3** |
 
 ---
 
@@ -269,4 +276,5 @@ BLDT_BMAD/
 다음 항목들은 5일 해커톤 데모의 범위를 벗어나며, 후속 상용화 단계로 명시적 연기(Deferred)한다:
 1. **멀티 테넌트 권한 및 SSO**: 해커톤에서는 단일 워크스페이스 내 간단한 역할 전환(HR / Tech Reviewer 토글)으로 대체.
 2. **외부 ATS 연동(Greenhouse, Lever 등)**: 파일 직접 업로드 및 로컬 mock 데이터셋으로 검증.
-3. **대규모 비동기 작업 큐(Celery/Redis)**: 20건 데모 볼륨은 FastAPI BackgroundTasks 또는 실시간 스트리밍 처리로 충분하므로 무거운 메시지 브로커는 제외.
+3. **대규모 비동기 작업 큐(Celery/Redis)**: 발표용 입력 수량이 아직 deferred이므로 MVP에서는 무거운 메시지 브로커를 도입하지 않는다.
+4. **베이스라인 재현 실행(PB-02)**: 범용 LLM 비교 실행과 5건×3회 결과 보존은 `DEL-003` 제작 시점으로 deferred한다.
