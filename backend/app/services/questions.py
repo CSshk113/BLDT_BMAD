@@ -12,6 +12,8 @@ from urllib import error as url_error
 from urllib import request as url_request
 import uuid
 
+from dotenv import load_dotenv
+
 from backend.app.models.handoff import (
     HandoffCard,
     HandoffStateError,
@@ -21,6 +23,7 @@ from backend.app.models.handoff import (
 
 
 MODEL_NAME = "gpt-5.6-luna"
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 QUESTION_BANK_DIR = Path(__file__).resolve().parents[3] / "HR_data" / "04_internal-docs" / "05_면접설계" / "question-bank" / "영업"
 MAX_BANK_ENTRY_CHARS = 12000
 PROTECTED_TERMS = (

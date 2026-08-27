@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 from backend.app import db
 from backend.app.main import app
 from backend.app.services.criteria import normalize_source_location
+from backend.app.services import criteria as criteria_service
+from backend.app.services.semantic_comparison import ExpressionComparison
 
 
 @pytest.fixture()
@@ -64,6 +66,47 @@ def test_same_status_and_location_with_different_wording_is_not_a_conflict(clien
     assert row["hr_review"]["reason_text"] != row["hm_review"]["reason_text"]
     assert row["hr_review"]["source_location"] == "p.3 · 프로젝트"
     assert row["hm_review"]["source_location"] == "3페이지 / 프로젝트"
+
+
+def test_semantic_comparison_result_controls_reason_difference(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        criteria_service,
+        "compare_expressions",
+        lambda **_kwargs: ExpressionComparison(location_equivalent=True, reason_equivalent=False, used_llm=True),
+    )
+    response = client.post(
+        "/api/criteria/cv-b2b-sales-v4/reviews",
+        headers={"X-Demo-Role": "HM"},
+        json={
+            "application_id": "APPS-2",
+            "reviewer_role": "HM",
+            "reviews": [{
+                "criterion_item_id": "cv-b2b-sales-v4-item-2",
+                "status": "UNVERIFIABLE",
+                "reason_text": "전혀 다른 근거입니다.",
+                "source_location": "페이지 3, 프로젝트",
+            }],
+        },
+    )
+
+    assert response.status_code == 200
+    row = next(row for row in response.json()["rows"] if row["criterion_item_id"].endswith("item-2"))
+    assert row["conflict_status"] == "OPEN"
+    assert row["differences"] == ["판단 사유"]
+
+
+def test_status_difference_cannot_be_overridden_by_semantic_match(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        criteria_service,
+        "compare_expressions",
+        lambda **_kwargs: ExpressionComparison(location_equivalent=True, reason_equivalent=True, used_llm=True),
+    )
+    response = client.get("/api/criteria/cv-b2b-sales-v4/conflicts")
+
+    assert response.status_code == 200
+    first = response.json()["rows"][0]
+    assert first["conflict_status"] == "OPEN"
+    assert first["differences"] == ["상태"]
 
 
 def test_different_normalized_location_remains_a_conflict(client: TestClient):

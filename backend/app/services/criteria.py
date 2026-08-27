@@ -2,8 +2,6 @@
 
 from datetime import UTC, datetime
 import json
-import re
-import unicodedata
 import uuid
 
 from backend.app.db import connect, initialize_schema
@@ -37,6 +35,7 @@ from backend.app.models.criteria import (
     ReviewStatus,
     ReviewerRole,
 )
+from backend.app.services.semantic_comparison import compare_expressions, normalize_location_tokens
 
 
 POSITION_NAME = "B2B 영업 매니저 5년 이상 ver.4"
@@ -69,13 +68,7 @@ def now_iso() -> str:
 
 def normalize_source_location(value: str) -> str:
     """Compare common renderings of the same page/section location."""
-    normalized = unicodedata.normalize("NFKC", value or "").casefold().strip()
-    normalized = re.sub(r"(?:p|page)\.?\s*(\d+)\s*[-~–—]\s*(\d+)", r"page-range:\1:\2", normalized)
-    normalized = re.sub(r"(\d+)\s*[-~–—]\s*(\d+)\s*페이지", r"page-range:\1:\2", normalized)
-    normalized = re.sub(r"(?:p|page)\.?\s*(\d+)", r"page:\1", normalized)
-    normalized = re.sub(r"(\d+)\s*페이지|페이지\s*(\d+)", lambda match: f"page:{match.group(1) or match.group(2)}", normalized)
-    normalized = re.sub(r"[\s·•|,/,:;_\-]+", "", normalized)
-    return normalized
+    return normalize_location_tokens(value)
 
 
 def _calibration_sample(connection, application_id: str, version_id: str) -> CalibrationSample:
@@ -367,8 +360,16 @@ def get_review_matrix(version_id: str, application_id: str = DEMO_APPLICATION_ID
         if hr_review and hm_review:
             if hr_review.status != hm_review.status:
                 differences.append("상태")
-            if normalize_source_location(hr_review.source_location) != normalize_source_location(hm_review.source_location):
+            comparison = compare_expressions(
+                hr_location=hr_review.source_location,
+                hm_location=hm_review.source_location,
+                hr_reason=hr_review.reason_text,
+                hm_reason=hm_review.reason_text,
+            )
+            if not comparison.location_equivalent:
                 differences.append("원문 위치")
+            if not comparison.reason_equivalent:
+                differences.append("판단 사유")
         conflict_status = (
             ConflictStatus.OPEN
             if differences

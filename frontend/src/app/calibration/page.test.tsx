@@ -1,11 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { normalizeSourceLocation } from "@/lib/criteria-api";
 import CalibrationPage from "./page";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("calibration page", () => {
+  it("normalizes reordered source-location expressions for the offline fallback", () => {
+    expect(normalizeSourceLocation("프로젝트, 페이지 3")).toBe(normalizeSourceLocation("페이지 3, 프로젝트"));
+  });
+
   it("shows the active Draft criteria and official gate", async () => {
     render(<CalibrationPage />);
 

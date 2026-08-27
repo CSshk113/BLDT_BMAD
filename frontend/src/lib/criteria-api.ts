@@ -259,7 +259,7 @@ export function fallbackReviewMatrix(versionId: string, items: CriteriaItem[] = 
 }
 
 export function normalizeSourceLocation(value: string): string {
-  return value
+  const normalized = value
     .normalize("NFKC")
     .toLowerCase()
     .trim()
@@ -267,7 +267,8 @@ export function normalizeSourceLocation(value: string): string {
     .replace(/(\d+)\s*[-~–—]\s*(\d+)\s*페이지/g, "page-range:$1:$2")
     .replace(/(?:p|page)\.?\s*(\d+)/g, "page:$1")
     .replace(/(\d+)\s*페이지|페이지\s*(\d+)/g, (_match, before, after) => `page:${before ?? after}`)
-    .replace(/[\s·•|,/,:;_-]+/g, "");
+  const tokens = normalized.match(/page-range:\d+:\d+|page:\d+|[가-힣A-Za-z0-9+#.]+/g) ?? [];
+  return tokens.sort().join("|");
 }
 
 export async function loadReviewMatrix(versionId: string, items: CriteriaItem[] = []) {
