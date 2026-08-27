@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import type { ReviewInput, ReviewLog, ReviewMatrix, ReviewRow, ReviewStatus, ReviewerRole } from "@/lib/criteria-api";
+import type { CalibrationSample, ReviewInput, ReviewLog, ReviewMatrix, ReviewRow, ReviewStatus, ReviewerRole } from "@/lib/criteria-api";
 
 type CalibrationMatrixProps = {
   matrix: ReviewMatrix;
@@ -30,6 +30,15 @@ const STATUS_LABELS: Record<ReviewStatus, string> = {
 const ROLE_LABELS: Record<ReviewerRole, string> = {
   HR: "HR · 스크리닝",
   HM: "HM · 서류 심사",
+};
+
+const DEFAULT_SAMPLE: CalibrationSample = {
+  application_id: "APPS-2",
+  candidate_token: "후보081",
+  position_name: "B2B 영업 매니저 5년 이상 ver.4",
+  source: "원티드",
+  excerpt: '“신규 고객 30개사를 직접 발굴하고 콜드 아웃바운드로 미팅을 만들었습니다.”',
+  source_location: "p.2 · 경력기술서",
 };
 
 function statusVariant(status: ReviewStatus) {
@@ -66,6 +75,16 @@ export function CalibrationMatrix({ matrix, currentRole, onRoleChange, onSave, o
   const [resolutionReason, setResolutionReason] = useState("");
   const [saving, setSaving] = useState(false);
   const selectedRow = matrix.rows.find((row) => row.criterion_item_id === selectedItemId) ?? matrix.rows[0];
+  const hasApiSample = Boolean(matrix.application_summary);
+  const sample = {
+    ...DEFAULT_SAMPLE,
+    application_id: matrix.application_summary?.application_id || matrix.application_id || DEFAULT_SAMPLE.application_id,
+    candidate_token: matrix.application_summary?.candidate_token || (hasApiSample ? "정보 없음" : DEFAULT_SAMPLE.candidate_token),
+    position_name: matrix.application_summary?.position_name || (hasApiSample ? "정보 없음" : DEFAULT_SAMPLE.position_name),
+    source: matrix.application_summary?.source || (hasApiSample ? "정보 없음" : DEFAULT_SAMPLE.source),
+    excerpt: matrix.application_summary?.excerpt || (hasApiSample ? "정보 없음" : DEFAULT_SAMPLE.excerpt),
+    source_location: matrix.application_summary?.source_location || (hasApiSample ? "정보 없음" : DEFAULT_SAMPLE.source_location),
+  };
 
   useEffect(() => {
     const row = matrix.rows.find((candidate) => candidate.criterion_item_id === selectedItemId) ?? matrix.rows[0];
@@ -116,6 +135,18 @@ export function CalibrationMatrix({ matrix, currentRole, onRoleChange, onSave, o
                 ))}
               </RadioGroup>
               <span className="text-xs text-muted-foreground">다른 검토자의 기록은 읽기 전용으로 표시됩니다.</span>
+            </div>
+          </div>
+          <div className="grid gap-3 rounded-lg border bg-muted/20 p-4" aria-label="교정 표본 지원서">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">교정 표본</Badge>
+              <span className="font-medium">{sample.application_id} · {sample.candidate_token}</span>
+              <span className="text-sm text-muted-foreground">{sample.position_name} · 출처 {sample.source}</span>
+            </div>
+            <div className="grid gap-1">
+              <span className="text-xs font-medium text-muted-foreground">대표 원문 문맥</span>
+              <blockquote className="border-l-2 pl-3 text-sm leading-6">{sample.excerpt || "정보 없음"}</blockquote>
+              <span className="text-xs text-muted-foreground">위치 · {sample.source_location || "정보 없음"}</span>
             </div>
           </div>
         </CardHeader>

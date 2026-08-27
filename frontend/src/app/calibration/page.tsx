@@ -17,6 +17,7 @@ import {
   resolveConflict,
   saveDraft,
   saveReview,
+  normalizeSourceLocation,
   toUiItems,
   type ReviewInput,
   type ReviewLog,
@@ -134,8 +135,7 @@ export default function CalibrationPage() {
       const differences = hrReview && hmReview
         ? [
             ...(hrReview.status !== hmReview.status ? ["상태"] : []),
-            ...(hrReview.source_location !== hmReview.source_location ? ["원문 위치"] : []),
-            ...(hrReview.reason_text !== hmReview.reason_text ? ["판단 사유"] : []),
+            ...(normalizeSourceLocation(hrReview.source_location) !== normalizeSourceLocation(hmReview.source_location) ? ["원문 위치"] : []),
           ]
         : [];
       return {

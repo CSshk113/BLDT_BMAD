@@ -63,9 +63,19 @@ export type ReviewRow = {
   resolution?: ConflictResolution | null;
 };
 
+export type CalibrationSample = {
+  application_id: string;
+  candidate_token: string;
+  position_name: string;
+  source: string;
+  excerpt: string;
+  source_location: string;
+};
+
 export type ReviewMatrix = {
   criteria_version_id: string;
   application_id: string;
+  application_summary?: CalibrationSample | null;
   rows: ReviewRow[];
   open_conflict_count: number;
 };
@@ -227,13 +237,37 @@ export function fallbackReviewMatrix(versionId: string, items: CriteriaItem[] = 
     const differences = hrReview && hmReview
       ? [
           ...(hrReview.status !== hmReview.status ? ["상태"] : []),
-          ...(hrReview.source_location !== hmReview.source_location ? ["원문 위치"] : []),
-          ...(hrReview.reason_text !== hmReview.reason_text ? ["판단 사유"] : []),
+          ...(normalizeSourceLocation(hrReview.source_location) !== normalizeSourceLocation(hmReview.source_location) ? ["원문 위치"] : []),
         ]
       : [];
     return { criterion_item_id: item.id, criterion_text: item.text, requirement_type: item.type, conflict_status: differences.length > 0 ? "OPEN" as const : !hrReview || !hmReview ? "PENDING" as const : "NONE" as const, differences, hr_review: hrReview, hm_review: hmReview };
   });
-  return { criteria_version_id: versionId, application_id: "APPS-2", rows, open_conflict_count: rows.filter((row) => row.conflict_status === "OPEN").length };
+  return {
+    criteria_version_id: versionId,
+    application_id: "APPS-2",
+    application_summary: {
+      application_id: "APPS-2",
+      candidate_token: "후보081",
+      position_name: "B2B 영업 매니저 5년 이상 ver.4",
+      source: "원티드",
+      excerpt: '“신규 고객 30개사를 직접 발굴하고 콜드 아웃바운드로 미팅을 만들었습니다.”',
+      source_location: "p.2 · 경력기술서",
+    },
+    rows,
+    open_conflict_count: rows.filter((row) => row.conflict_status === "OPEN").length,
+  };
+}
+
+export function normalizeSourceLocation(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .trim()
+    .replace(/(?:p|page)\.?\s*(\d+)\s*[-~–—]\s*(\d+)/g, "page-range:$1:$2")
+    .replace(/(\d+)\s*[-~–—]\s*(\d+)\s*페이지/g, "page-range:$1:$2")
+    .replace(/(?:p|page)\.?\s*(\d+)/g, "page:$1")
+    .replace(/(\d+)\s*페이지|페이지\s*(\d+)/g, (_match, before, after) => `page:${before ?? after}`)
+    .replace(/[\s·•|,/,:;_-]+/g, "");
 }
 
 export async function loadReviewMatrix(versionId: string, items: CriteriaItem[] = []) {

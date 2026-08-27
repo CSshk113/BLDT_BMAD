@@ -2,12 +2,15 @@
 
 from datetime import UTC, datetime
 import json
+import re
+import unicodedata
 import uuid
 
 from backend.app.db import connect, initialize_schema
 from backend.app.models.criteria import (
     CriteriaItem,
     CriteriaApprovalResult,
+    CalibrationSample,
     CriteriaMutationResult,
     CriteriaVersion,
     CriteriaVersionStatus,
@@ -43,6 +46,9 @@ DEFAULT_ITEMS = (
     ("CRM 또는 세일즈 데이터 기반 성과 관리", "우대"),
 )
 DEMO_APPLICATION_ID = "APPS-2"
+DEMO_CANDIDATE_TOKEN = "후보081"
+DEMO_SOURCE = "원티드"
+DEMO_EXCERPT = '“신규 고객 30개사를 직접 발굴하고 콜드 아웃바운드로 미팅을 만들었습니다.”'
 
 DEMO_REVIEWS = (
     ("HR", 1, "FULFILLED", "신규 고객 발굴 경험이 명시되어 있습니다.", "p.2 · 경력기술서"),
@@ -59,6 +65,53 @@ class JudgmentEvidenceError(ValueError):
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def normalize_source_location(value: str) -> str:
+    """Compare common renderings of the same page/section location."""
+    normalized = unicodedata.normalize("NFKC", value or "").casefold().strip()
+    normalized = re.sub(r"(?:p|page)\.?\s*(\d+)\s*[-~–—]\s*(\d+)", r"page-range:\1:\2", normalized)
+    normalized = re.sub(r"(\d+)\s*[-~–—]\s*(\d+)\s*페이지", r"page-range:\1:\2", normalized)
+    normalized = re.sub(r"(?:p|page)\.?\s*(\d+)", r"page:\1", normalized)
+    normalized = re.sub(r"(\d+)\s*페이지|페이지\s*(\d+)", lambda match: f"page:{match.group(1) or match.group(2)}", normalized)
+    normalized = re.sub(r"[\s·•|,/,:;_\-]+", "", normalized)
+    return normalized
+
+
+def _calibration_sample(connection, application_id: str, version_id: str) -> CalibrationSample:
+    row = connection.execute(
+        "SELECT candidate_token, position_name, ledger_metadata_json FROM applications WHERE id = ?",
+        (application_id,),
+    ).fetchone()
+    is_demo_fallback = row is None and application_id == DEMO_APPLICATION_ID
+    candidate_token = (row["candidate_token"] or "정보 없음") if row else (DEMO_CANDIDATE_TOKEN if is_demo_fallback else "정보 없음")
+    position_name = (row["position_name"] or "정보 없음") if row else (POSITION_NAME if is_demo_fallback else "정보 없음")
+    source = "정보 없음"
+    if row:
+        try:
+            metadata = json.loads(row["ledger_metadata_json"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            metadata = {}
+        if isinstance(metadata, dict):
+            source = metadata.get("channel") or "정보 없음"
+    elif is_demo_fallback:
+        source = DEMO_SOURCE
+    mapping = connection.execute(
+        """
+        SELECT citation, location FROM mapping_results
+        WHERE application_id = ? AND criteria_version_id = ? AND mapping_status = 'COMPLETED'
+        ORDER BY id LIMIT 1
+        """,
+        (application_id, version_id),
+    ).fetchone()
+    return CalibrationSample(
+        application_id=application_id,
+        candidate_token=candidate_token,
+        position_name=position_name,
+        source=source,
+        excerpt=(mapping["citation"] if mapping and mapping["citation"] else DEMO_EXCERPT if is_demo_fallback else "정보 없음"),
+        source_location=(mapping["location"] if mapping and mapping["location"] else "정보 없음"),
+    )
 
 
 def ensure_seed_data() -> None:
@@ -314,10 +367,8 @@ def get_review_matrix(version_id: str, application_id: str = DEMO_APPLICATION_ID
         if hr_review and hm_review:
             if hr_review.status != hm_review.status:
                 differences.append("상태")
-            if hr_review.source_location != hm_review.source_location:
+            if normalize_source_location(hr_review.source_location) != normalize_source_location(hm_review.source_location):
                 differences.append("원문 위치")
-            if hr_review.reason_text != hm_review.reason_text:
-                differences.append("판단 사유")
         conflict_status = (
             ConflictStatus.OPEN
             if differences
@@ -343,6 +394,7 @@ def get_review_matrix(version_id: str, application_id: str = DEMO_APPLICATION_ID
     return ReviewMatrix(
         criteria_version_id=version.id,
         application_id=application_id,
+        application_summary=_calibration_sample(connection, application_id, version_id),
         rows=matrix_rows,
         open_conflict_count=sum(row.conflict_status == ConflictStatus.OPEN for row in matrix_rows),
     )

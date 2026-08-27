@@ -281,9 +281,19 @@ class ConflictRow(BaseModel):
     resolution: ConflictResolution | None = None
 
 
+class CalibrationSample(BaseModel):
+    application_id: str
+    candidate_token: str
+    position_name: str
+    source: str
+    excerpt: str
+    source_location: str
+
+
 class ReviewMatrix(BaseModel):
     criteria_version_id: str
     application_id: str
+    application_summary: CalibrationSample | None = None
     rows: list[ConflictRow] = Field(default_factory=list)
     open_conflict_count: int = 0
 
