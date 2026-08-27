@@ -44,7 +44,12 @@ def test_invalidating_one_version_does_not_touch_another(client: TestClient):
     clone_item_id = clone["items"][0]["id"]
     with db.connect() as connection:
         connection.execute(
-            "INSERT INTO mapping_results VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED')",
+            """
+            INSERT INTO mapping_results
+            (id, criteria_version_id, application_id, applicant_label, criterion_item_id,
+             citation, location, evidence_status, mapping_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED')
+            """,
             (
                 "mapping-clone-1",
                 clone["id"],

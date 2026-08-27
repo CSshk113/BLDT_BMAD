@@ -38,10 +38,13 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             id TEXT PRIMARY KEY,
             criteria_version_id TEXT NOT NULL REFERENCES criteria_versions(id),
             application_id TEXT NOT NULL,
+            processing_run_id TEXT,
+            source_artifact_id TEXT,
             applicant_label TEXT NOT NULL,
             criterion_item_id TEXT NOT NULL REFERENCES criteria_items(id),
             citation TEXT NOT NULL,
             location TEXT NOT NULL,
+            location_kind TEXT NOT NULL DEFAULT 'EXACT' CHECK(location_kind IN ('EXACT', 'FALLBACK', 'NONE')),
             evidence_status TEXT NOT NULL,
             mapping_status TEXT NOT NULL CHECK(mapping_status IN ('RECEIVED', 'COMPLETED', 'INVALIDATED'))
         );
@@ -177,4 +180,23 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(criteria_versions)").fetchall()}
     if "approved_by" not in columns:
         connection.execute("ALTER TABLE criteria_versions ADD COLUMN approved_by TEXT")
+    mapping_columns = {row["name"] for row in connection.execute("PRAGMA table_info(mapping_results)").fetchall()}
+    if "processing_run_id" not in mapping_columns:
+        connection.execute("ALTER TABLE mapping_results ADD COLUMN processing_run_id TEXT")
+    if "source_artifact_id" not in mapping_columns:
+        connection.execute("ALTER TABLE mapping_results ADD COLUMN source_artifact_id TEXT")
+    if "location_kind" not in mapping_columns:
+        connection.execute("ALTER TABLE mapping_results ADD COLUMN location_kind TEXT NOT NULL DEFAULT 'EXACT'")
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mapping_results_application_version "
+        "ON mapping_results(application_id, criteria_version_id, mapping_status, id)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mapping_results_processing_run "
+        "ON mapping_results(processing_run_id, criterion_item_id)"
+    )
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_mapping_results_completed_run_criterion "
+        "ON mapping_results(processing_run_id, criterion_item_id) WHERE mapping_status = 'COMPLETED' AND processing_run_id IS NOT NULL"
+    )
     connection.commit()

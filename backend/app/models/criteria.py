@@ -21,6 +21,19 @@ class MappingStatus(StrEnum):
     INVALIDATED = "INVALIDATED"
 
 
+class EvidenceStatus(StrEnum):
+    FULFILLED = "충족"
+    PARTIALLY_FULFILLED = "부분 충족"
+    UNFULFILLED = "미충족"
+    UNVERIFIABLE = "확인 불가"
+
+
+class EvidenceLocationKind(StrEnum):
+    EXACT = "EXACT"
+    FALLBACK = "FALLBACK"
+    NONE = "NONE"
+
+
 class ReviewerRole(StrEnum):
     HR = "HR"
     HM = "HM"
@@ -78,6 +91,33 @@ class PreviewMapping(BaseModel):
     location: str
     evidence_status: str
     mapping_status: MappingStatus
+
+
+class MappingResult(BaseModel):
+    id: str
+    application_id: str
+    criteria_version_id: str
+    processing_run_id: str | None = None
+    source_artifact_id: str | None = None
+    applicant_label: str
+    criterion_item_id: str
+    criterion_text: str
+    requirement_type: str
+    citation: str
+    location: str
+    location_kind: EvidenceLocationKind
+    evidence_status: EvidenceStatus
+    mapping_status: MappingStatus
+
+
+class MappingResponse(BaseModel):
+    application_id: str
+    criteria_version_id: str
+    criteria_status: CriteriaVersionStatus
+    is_preview: bool
+    processing_run_id: str
+    source_artifact_id: str
+    mappings: list[MappingResult] = Field(default_factory=list)
 
 
 class DraftPreview(BaseModel):

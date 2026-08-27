@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.criteria import router as criteria_router
 from backend.app.api.applications import router as applications_router
+from backend.app.api.mapping import router as mapping_router
 from backend.app.services.criteria import reject_official_action
 
 
@@ -16,6 +17,7 @@ app.add_middleware(
 )
 app.include_router(criteria_router)
 app.include_router(applications_router)
+app.include_router(mapping_router)
 
 
 @app.get("/health")

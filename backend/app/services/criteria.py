@@ -71,6 +71,8 @@ def ensure_seed_data() -> None:
         connection.execute(
             """
             INSERT INTO mapping_results
+            (id, criteria_version_id, application_id, applicant_label, criterion_item_id,
+             citation, location, evidence_status, mapping_status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED')
             """,
             (
