@@ -42,9 +42,12 @@ export type ReviewLog = {
   application_id: string;
   criterion_item_id: string;
   reviewer_role: ReviewerRole;
+  review_scope?: "CALIBRATION" | "OFFICIAL";
   status: ReviewStatus;
   reason_text: string;
   source_location: string;
+  citation?: string;
+  edit_history?: Array<Record<string, unknown>>;
   created_at: string;
   updated_at: string;
 };
@@ -78,6 +81,45 @@ export type ReviewSubmission = {
   application_id: string;
   reviewer_role: ReviewerRole;
   reviews: ReviewInput[];
+};
+
+export type JudgmentLog = ReviewLog & { review_scope: "OFFICIAL"; citation: string; edit_history: Array<Record<string, unknown>> };
+export type DocumentJudgment = {
+  reviewer_role: ReviewerRole;
+  verdict: string;
+  edit_history: Array<Record<string, unknown>>;
+  created_at: string;
+  updated_at: string;
+};
+export type JudgmentRow = {
+  criterion_item_id: string;
+  criterion_text: string;
+  requirement_type: "필수" | "우대";
+  differences: string[];
+  hr_review: JudgmentLog | null;
+  hm_review: JudgmentLog | null;
+};
+export type JudgmentMatrix = {
+  criteria_version_id: string;
+  application_id: string;
+  hr_document_judgment: DocumentJudgment | null;
+  hm_document_judgment: DocumentJudgment | null;
+  rows: JudgmentRow[];
+};
+export type JudgmentInput = {
+  criterion_item_id: string;
+  status: ReviewStatus;
+  reason_text: string;
+  citation?: string;
+  source_location?: string;
+  edit_reason?: string;
+};
+export type JudgmentSubmission = {
+  application_id: string;
+  reviewer_role: ReviewerRole;
+  document_verdict?: string;
+  document_edit_reason?: string;
+  reviews: JudgmentInput[];
 };
 
 export type ConflictResolution = {
@@ -207,6 +249,20 @@ export async function loadReviewMatrix(versionId: string, items: CriteriaItem[] 
 
 export async function saveReview(versionId: string, payload: ReviewSubmission) {
   return request<ReviewMatrix>(`/api/criteria/${versionId}/reviews`, {
+    method: "POST",
+    headers: { "X-Demo-Role": payload.reviewer_role },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function loadJudgmentMatrix(versionId: string, applicationId = "APPS-2") {
+  return request<JudgmentMatrix>(
+    `/api/criteria/${encodeURIComponent(versionId)}/judgments?application_id=${encodeURIComponent(applicationId)}`,
+  );
+}
+
+export async function saveJudgments(versionId: string, payload: JudgmentSubmission) {
+  return request<JudgmentMatrix>(`/api/criteria/${encodeURIComponent(versionId)}/judgments`, {
     method: "POST",
     headers: { "X-Demo-Role": payload.reviewer_role },
     body: JSON.stringify(payload),

@@ -54,12 +54,29 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             application_id TEXT NOT NULL,
             criterion_item_id TEXT NOT NULL REFERENCES criteria_items(id),
             reviewer_role TEXT NOT NULL CHECK(reviewer_role IN ('HR', 'HM')),
+            review_scope TEXT NOT NULL DEFAULT 'CALIBRATION' CHECK(review_scope IN ('CALIBRATION', 'OFFICIAL')),
             review_status TEXT NOT NULL CHECK(review_status IN ('FULFILLED', 'PARTIALLY_FULFILLED', 'UNFULFILLED', 'UNVERIFIABLE')),
             reason_text TEXT NOT NULL,
             source_location TEXT NOT NULL,
+            citation TEXT NOT NULL DEFAULT '',
+            mapping_result_id TEXT,
+            processing_run_id TEXT,
+            source_artifact_id TEXT,
+            edit_history_json TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            UNIQUE(criteria_version_id, application_id, criterion_item_id, reviewer_role)
+            UNIQUE(criteria_version_id, application_id, criterion_item_id, reviewer_role, review_scope)
+        );
+        CREATE TABLE IF NOT EXISTS document_judgments (
+            id TEXT PRIMARY KEY,
+            criteria_version_id TEXT NOT NULL REFERENCES criteria_versions(id),
+            application_id TEXT NOT NULL,
+            reviewer_role TEXT NOT NULL CHECK(reviewer_role IN ('HR', 'HM')),
+            verdict TEXT NOT NULL,
+            edit_history_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(criteria_version_id, application_id, reviewer_role)
         );
         CREATE TABLE IF NOT EXISTS conflict_resolutions (
             id TEXT PRIMARY KEY,
@@ -180,6 +197,69 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(criteria_versions)").fetchall()}
     if "approved_by" not in columns:
         connection.execute("ALTER TABLE criteria_versions ADD COLUMN approved_by TEXT")
+    review_columns = {row["name"] for row in connection.execute("PRAGMA table_info(review_logs)").fetchall()}
+    if "review_scope" not in review_columns:
+        connection.execute("ALTER TABLE review_logs RENAME TO review_logs_legacy")
+        connection.execute(
+            """
+            CREATE TABLE review_logs (
+                id TEXT PRIMARY KEY,
+                criteria_version_id TEXT NOT NULL REFERENCES criteria_versions(id),
+                application_id TEXT NOT NULL,
+                criterion_item_id TEXT NOT NULL REFERENCES criteria_items(id),
+                reviewer_role TEXT NOT NULL CHECK(reviewer_role IN ('HR', 'HM')),
+                review_scope TEXT NOT NULL DEFAULT 'CALIBRATION' CHECK(review_scope IN ('CALIBRATION', 'OFFICIAL')),
+                review_status TEXT NOT NULL CHECK(review_status IN ('FULFILLED', 'PARTIALLY_FULFILLED', 'UNFULFILLED', 'UNVERIFIABLE')),
+                reason_text TEXT NOT NULL,
+                source_location TEXT NOT NULL,
+                citation TEXT NOT NULL DEFAULT '',
+                mapping_result_id TEXT,
+                processing_run_id TEXT,
+                source_artifact_id TEXT,
+                edit_history_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(criteria_version_id, application_id, criterion_item_id, reviewer_role, review_scope)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO review_logs
+            (id, criteria_version_id, application_id, criterion_item_id, reviewer_role,
+             review_scope, review_status, reason_text, source_location, created_at, updated_at)
+            SELECT id, criteria_version_id, application_id, criterion_item_id, reviewer_role,
+                   'CALIBRATION', review_status, reason_text, source_location, created_at, updated_at
+            FROM review_logs_legacy
+            """
+        )
+        connection.execute("DROP TABLE review_logs_legacy")
+    review_columns = {row["name"] for row in connection.execute("PRAGMA table_info(review_logs)").fetchall()}
+    if "citation" not in review_columns:
+        connection.execute("ALTER TABLE review_logs ADD COLUMN citation TEXT NOT NULL DEFAULT ''")
+    if "mapping_result_id" not in review_columns:
+        connection.execute("ALTER TABLE review_logs ADD COLUMN mapping_result_id TEXT")
+    if "processing_run_id" not in review_columns:
+        connection.execute("ALTER TABLE review_logs ADD COLUMN processing_run_id TEXT")
+    if "source_artifact_id" not in review_columns:
+        connection.execute("ALTER TABLE review_logs ADD COLUMN source_artifact_id TEXT")
+    if "edit_history_json" not in review_columns:
+        connection.execute("ALTER TABLE review_logs ADD COLUMN edit_history_json TEXT NOT NULL DEFAULT '[]'")
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS document_judgments (
+            id TEXT PRIMARY KEY,
+            criteria_version_id TEXT NOT NULL REFERENCES criteria_versions(id),
+            application_id TEXT NOT NULL,
+            reviewer_role TEXT NOT NULL CHECK(reviewer_role IN ('HR', 'HM')),
+            verdict TEXT NOT NULL,
+            edit_history_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(criteria_version_id, application_id, reviewer_role)
+        )
+        """
+    )
     mapping_columns = {row["name"] for row in connection.execute("PRAGMA table_info(mapping_results)").fetchall()}
     if "processing_run_id" not in mapping_columns:
         connection.execute("ALTER TABLE mapping_results ADD COLUMN processing_run_id TEXT")

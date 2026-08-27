@@ -1,6 +1,7 @@
 """Criteria version and Draft preview business rules."""
 
 from datetime import UTC, datetime
+import json
 import uuid
 
 from backend.app.db import connect, initialize_schema
@@ -19,6 +20,14 @@ from backend.app.models.criteria import (
     OfficialActionRejected,
     PreviewMapping,
     ReviewInput,
+    JudgmentInput,
+    JudgmentMatrix,
+    JudgmentRow,
+    JudgmentSubmission,
+    DocumentJudgment,
+    HR_SCREENING_VERDICTS,
+    HM_DOCUMENT_VERDICTS,
+    ReviewScope,
     ReviewLog,
     ReviewMatrix,
     ReviewSubmission,
@@ -42,6 +51,10 @@ DEMO_REVIEWS = (
     ("HR", 3, "PARTIALLY_FULFILLED", "성과 수치는 있으나 CRM 사용 근거가 부족합니다.", "p.3 · 프로젝트"),
     ("HM", 3, "UNFULFILLED", "CRM 또는 세일즈 데이터 운영 경험이 원문에 없습니다.", "p.3 · 프로젝트"),
 )
+
+
+class JudgmentEvidenceError(ValueError):
+    """A judgment lacks the evidence required for its status."""
 
 
 def now_iso() -> str:
@@ -110,8 +123,8 @@ def _ensure_demo_reviews(connection, version_id: str) -> None:
             """
             INSERT INTO review_logs
             (id, criteria_version_id, application_id, criterion_item_id, reviewer_role,
-             review_status, reason_text, source_location, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             review_scope, review_status, reason_text, source_location, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'CALIBRATION', ?, ?, ?, ?, ?)
             """,
             (
                 f"review-demo-{version_id}-{reviewer_role.lower()}-{item_number}",
@@ -234,15 +247,25 @@ def get_preview(version_id: str) -> DraftPreview:
 
 
 def _row_to_review(row) -> ReviewLog:
+    try:
+        edit_history = json.loads(row["edit_history_json"] or "[]")
+    except (KeyError, TypeError, json.JSONDecodeError):
+        edit_history = []
     return ReviewLog(
         id=row["id"],
         criteria_version_id=row["criteria_version_id"],
         application_id=row["application_id"],
         criterion_item_id=row["criterion_item_id"],
         reviewer_role=row["reviewer_role"],
+        review_scope=row["review_scope"] if "review_scope" in row.keys() else ReviewScope.CALIBRATION,
         status=row["review_status"],
         reason_text=row["reason_text"],
         source_location=row["source_location"],
+        citation=row["citation"] if "citation" in row.keys() else "",
+        mapping_result_id=row["mapping_result_id"] if "mapping_result_id" in row.keys() else None,
+        processing_run_id=row["processing_run_id"] if "processing_run_id" in row.keys() else None,
+        source_artifact_id=row["source_artifact_id"] if "source_artifact_id" in row.keys() else None,
+        edit_history=edit_history,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -255,7 +278,7 @@ def get_review_matrix(version_id: str, application_id: str = DEMO_APPLICATION_ID
         rows = connection.execute(
             """
             SELECT * FROM review_logs
-            WHERE criteria_version_id = ? AND application_id = ?
+            WHERE criteria_version_id = ? AND application_id = ? AND review_scope = 'CALIBRATION'
             ORDER BY updated_at, id
             """,
             (version_id, application_id),
@@ -341,7 +364,7 @@ def save_reviews(version_id: str, submission: ReviewSubmission, actor_role: Revi
                 """
                 SELECT id, created_at, review_status, reason_text, source_location FROM review_logs
                 WHERE criteria_version_id = ? AND application_id = ?
-                  AND criterion_item_id = ? AND reviewer_role = ?
+                  AND criterion_item_id = ? AND reviewer_role = ? AND review_scope = 'CALIBRATION'
                 """,
                 (version_id, submission.application_id, review.criterion_item_id, submission.reviewer_role),
             ).fetchone()
@@ -359,8 +382,8 @@ def save_reviews(version_id: str, submission: ReviewSubmission, actor_role: Revi
                     """
                     INSERT INTO review_logs
                     (id, criteria_version_id, application_id, criterion_item_id, reviewer_role,
-                     review_status, reason_text, source_location, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     review_scope, review_status, reason_text, source_location, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, 'CALIBRATION', ?, ?, ?, ?, ?)
                     """,
                     (
                         f"review-{uuid.uuid4().hex[:12]}",
@@ -391,6 +414,241 @@ def save_reviews(version_id: str, submission: ReviewSubmission, actor_role: Revi
                 )
         connection.commit()
     return get_review_matrix(version_id, submission.application_id)
+
+
+def _json_history(value: str | None) -> list[dict]:
+    try:
+        parsed = json.loads(value or "[]")
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _ensure_judgment_ready(connection, version: CriteriaVersion, application_id: str) -> None:
+    if version.status != CriteriaVersionStatus.APPROVED:
+        raise ValueError("승인된 기준 버전에서만 공식 판단 로그를 저장할 수 있습니다")
+    expected = len(version.items)
+    completed_rows = connection.execute(
+        """
+        SELECT DISTINCT criterion_item_id
+        FROM mapping_results
+        WHERE application_id = ? AND criteria_version_id = ? AND mapping_status = 'COMPLETED'
+        """,
+        (application_id, version.id),
+    ).fetchall()
+    completed_ids = {row["criterion_item_id"] for row in completed_rows}
+    expected_ids = {item.id for item in version.items}
+    if completed_ids != expected_ids or expected == 0:
+        raise ValueError("모든 기준 항목의 처리 완료 매핑이 필요합니다")
+
+
+def _current_mapping(connection, application_id: str, version_id: str, item_id: str):
+    return connection.execute(
+        """
+        SELECT m.id, m.citation, m.location, m.processing_run_id, m.source_artifact_id
+        FROM mapping_results AS m
+        LEFT JOIN processing_runs AS p ON p.id = m.processing_run_id
+        WHERE m.application_id = ? AND m.criteria_version_id = ?
+          AND m.criterion_item_id = ? AND m.mapping_status = 'COMPLETED'
+        ORDER BY CASE WHEN p.completed_at IS NULL THEN 1 ELSE 0 END,
+                 p.completed_at DESC, m.id DESC
+        LIMIT 1
+        """,
+        (application_id, version_id, item_id),
+    ).fetchone()
+
+
+def _judgment_verdicts(role: ReviewerRole) -> tuple[str, ...]:
+    return HR_SCREENING_VERDICTS if role == ReviewerRole.HR else HM_DOCUMENT_VERDICTS
+
+
+def _row_to_document_judgment(row) -> DocumentJudgment:
+    return DocumentJudgment(
+        reviewer_role=row["reviewer_role"],
+        verdict=row["verdict"],
+        edit_history=_json_history(row["edit_history_json"]),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def get_judgment_matrix(version_id: str, application_id: str = DEMO_APPLICATION_ID) -> JudgmentMatrix:
+    version = get_version(version_id)
+    with connect() as connection:
+        _ensure_judgment_ready(connection, version, application_id)
+        rows = connection.execute(
+            """
+            SELECT * FROM review_logs
+            WHERE criteria_version_id = ? AND application_id = ? AND review_scope = 'OFFICIAL'
+            ORDER BY criterion_item_id, reviewer_role
+            """,
+            (version_id, application_id),
+        ).fetchall()
+        document_rows = connection.execute(
+            """
+            SELECT * FROM document_judgments
+            WHERE criteria_version_id = ? AND application_id = ?
+            """,
+            (version_id, application_id),
+        ).fetchall()
+    by_item: dict[str, dict[ReviewerRole, ReviewLog]] = {}
+    for row in rows:
+        review = _row_to_review(row)
+        by_item.setdefault(review.criterion_item_id, {})[review.reviewer_role] = review
+    matrix_rows: list[JudgmentRow] = []
+    for item in version.items:
+        reviews = by_item.get(item.id, {})
+        hr_review = reviews.get(ReviewerRole.HR)
+        hm_review = reviews.get(ReviewerRole.HM)
+        differences: list[str] = []
+        if hr_review and hm_review:
+            if hr_review.status != hm_review.status:
+                differences.append("상태")
+            if hr_review.reason_text != hm_review.reason_text:
+                differences.append("판단 사유")
+            if hr_review.source_location != hm_review.source_location:
+                differences.append("원문 위치")
+            if hr_review.citation != hm_review.citation:
+                differences.append("인용구")
+        matrix_rows.append(JudgmentRow(
+            criterion_item_id=item.id,
+            criterion_text=item.criterion_text,
+            requirement_type=item.requirement_type,
+            differences=differences,
+            hr_review=hr_review,
+            hm_review=hm_review,
+        ))
+    documents = {row["reviewer_role"]: _row_to_document_judgment(row) for row in document_rows}
+    return JudgmentMatrix(
+        criteria_version_id=version.id,
+        application_id=application_id,
+        hr_document_judgment=documents.get(ReviewerRole.HR),
+        hm_document_judgment=documents.get(ReviewerRole.HM),
+        rows=matrix_rows,
+    )
+
+
+def save_judgments(version_id: str, submission: JudgmentSubmission, actor_role: ReviewerRole) -> JudgmentMatrix:
+    version = get_version(version_id)
+    if actor_role != submission.reviewer_role:
+        raise PermissionError("다른 검토자의 판단 로그는 수정할 수 없습니다")
+    item_ids = {item.id for item in version.items}
+    if any(review.criterion_item_id not in item_ids for review in submission.reviews):
+        raise ValueError("기준 버전에 속하지 않은 항목입니다")
+    if submission.document_verdict and submission.document_verdict not in _judgment_verdicts(actor_role):
+        raise ValueError("해당 검토 단계에서 사용할 수 없는 지원서 판정입니다")
+    timestamp = now_iso()
+    with connect() as connection:
+        _ensure_judgment_ready(connection, version, submission.application_id)
+        for review in submission.reviews:
+            mapping = _current_mapping(connection, submission.application_id, version_id, review.criterion_item_id)
+            if mapping is None:
+                raise ValueError("기준 항목의 처리 완료 매핑을 찾을 수 없습니다")
+            if review.status == ReviewStatus.UNVERIFIABLE:
+                citation = ""
+                source_location = review.source_location or mapping["location"] or "확인 불가"
+            else:
+                if not review.citation or not review.source_location:
+                    raise JudgmentEvidenceError("확인 가능한 판단에는 원문 인용구와 위치가 필요합니다")
+                if mapping is None or mapping["citation"] != review.citation or mapping["location"] != review.source_location:
+                    raise JudgmentEvidenceError("저장된 매핑과 일치하는 원문 인용구·위치를 선택해야 합니다")
+                citation = review.citation
+                source_location = review.source_location
+            existing = connection.execute(
+                """
+                SELECT * FROM review_logs
+                WHERE criteria_version_id = ? AND application_id = ?
+                  AND criterion_item_id = ? AND reviewer_role = ? AND review_scope = 'OFFICIAL'
+                """,
+                (version_id, submission.application_id, review.criterion_item_id, actor_role),
+            ).fetchone()
+            changed = existing is not None and any(
+                existing[column] != value for column, value in (
+                    ("review_status", review.status),
+                    ("reason_text", review.reason_text),
+                    ("source_location", source_location),
+                    ("citation", citation),
+                )
+            )
+            if existing:
+                history = _json_history(existing["edit_history_json"])
+                if changed:
+                    history.append({
+                        "previous": {
+                            "status": existing["review_status"],
+                            "reason_text": existing["reason_text"],
+                            "source_location": existing["source_location"],
+                            "citation": existing["citation"],
+                        },
+                        "changed": {
+                            "status": review.status,
+                            "reason_text": review.reason_text,
+                            "source_location": source_location,
+                            "citation": citation,
+                        },
+                        "actor": actor_role,
+                        "edited_at": timestamp,
+                        "reason": review.edit_reason,
+                    })
+                    connection.execute(
+                        """
+                        UPDATE review_logs
+                        SET review_status = ?, reason_text = ?, source_location = ?, citation = ?,
+                            mapping_result_id = ?, processing_run_id = ?, source_artifact_id = ?,
+                            edit_history_json = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (review.status, review.reason_text, source_location, citation, mapping["id"], mapping["processing_run_id"], mapping["source_artifact_id"], json.dumps(history, ensure_ascii=False), timestamp, existing["id"]),
+                    )
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO review_logs
+                    (id, criteria_version_id, application_id, criterion_item_id, reviewer_role,
+                     review_scope, review_status, reason_text, source_location, citation,
+                     mapping_result_id, processing_run_id, source_artifact_id,
+                     edit_history_json, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, 'OFFICIAL', ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)
+                    """,
+                    (f"judgment-{uuid.uuid4().hex[:12]}", version_id, submission.application_id,
+                     review.criterion_item_id, actor_role, review.status, review.reason_text,
+                     source_location, citation, mapping["id"], mapping["processing_run_id"], mapping["source_artifact_id"], timestamp, timestamp),
+                )
+        if submission.document_verdict:
+            existing_document = connection.execute(
+                """
+                SELECT * FROM document_judgments
+                WHERE criteria_version_id = ? AND application_id = ? AND reviewer_role = ?
+                """,
+                (version_id, submission.application_id, actor_role),
+            ).fetchone()
+            if existing_document:
+                history = _json_history(existing_document["edit_history_json"])
+                if existing_document["verdict"] != submission.document_verdict:
+                    history.append({
+                        "previous": existing_document["verdict"],
+                        "changed": submission.document_verdict,
+                        "actor": actor_role,
+                        "edited_at": timestamp,
+                        "reason": submission.document_edit_reason,
+                    })
+                    connection.execute(
+                        "UPDATE document_judgments SET verdict = ?, edit_history_json = ?, updated_at = ? WHERE id = ?",
+                        (submission.document_verdict, json.dumps(history, ensure_ascii=False), timestamp, existing_document["id"]),
+                    )
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO document_judgments
+                    (id, criteria_version_id, application_id, reviewer_role, verdict,
+                     edit_history_json, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, '[]', ?, ?)
+                    """,
+                    (f"document-judgment-{uuid.uuid4().hex[:12]}", version_id, submission.application_id,
+                     actor_role, submission.document_verdict, timestamp, timestamp),
+                )
+        connection.commit()
+    return get_judgment_matrix(version_id, submission.application_id)
 
 
 def reject_official_action(version_id: str) -> OfficialActionRejected | None:

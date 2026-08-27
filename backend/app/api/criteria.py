@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Header, HTTPException, status
 
-from backend.app.models.criteria import CriteriaApprovalResult, CriteriaVersionUpdate, ConflictResolutionInput, ReviewMatrix, ReviewSubmission, ReviewerRole
+from backend.app.models.criteria import CriteriaApprovalResult, CriteriaVersionUpdate, ConflictResolutionInput, JudgmentMatrix, JudgmentSubmission, ReviewMatrix, ReviewSubmission, ReviewerRole
 from backend.app.services import criteria
 
 
@@ -69,6 +69,35 @@ def save_reviews(
         raise HTTPException(status_code=404, detail="기준 버전을 찾을 수 없습니다") from error
     except PermissionError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.get("/{version_id}/judgments", response_model=JudgmentMatrix)
+def get_judgments(version_id: str, application_id: str = "APPS-2") -> JudgmentMatrix:
+    try:
+        return criteria.get_judgment_matrix(version_id, application_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="기준 버전 또는 지원서를 찾을 수 없습니다") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.post("/{version_id}/judgments", response_model=JudgmentMatrix)
+def save_judgments(
+    version_id: str,
+    payload: JudgmentSubmission,
+    x_demo_role: ReviewerRole | None = Header(default=None),
+):
+    actor_role = x_demo_role or payload.reviewer_role
+    try:
+        return criteria.save_judgments(version_id, payload, actor_role)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="기준 버전 또는 지원서를 찾을 수 없습니다") from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except criteria.JudgmentEvidenceError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 

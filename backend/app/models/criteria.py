@@ -46,6 +46,30 @@ class ReviewStatus(StrEnum):
     UNVERIFIABLE = "UNVERIFIABLE"
 
 
+class ReviewScope(StrEnum):
+    CALIBRATION = "CALIBRATION"
+    OFFICIAL = "OFFICIAL"
+
+
+HR_SCREENING_VERDICTS = (
+    "불합격 - 허수 지원",
+    "불합격 - 경력/역량 부족",
+    "불합격 - 회사/지원자 FIT",
+    "스크리닝 통과",
+)
+
+HM_DOCUMENT_VERDICTS = (
+    "불합격 - 허수 지원",
+    "불합격 - 경력/역량 부족",
+    "불합격 - 회사/지원자 FIT",
+    "불합격 - 기타",
+    "합격 - 필수 역량 충족",
+    "합격 - 회사/지원자 FIT",
+    "합격 - 필수 역량 미충족이나 면접 진행 필요",
+    "합격 - 기타",
+)
+
+
 class ConflictStatus(StrEnum):
     OPEN = "OPEN"
     RESOLVED = "RESOLVED"
@@ -166,11 +190,84 @@ class ReviewLog(BaseModel):
     application_id: str
     criterion_item_id: str
     reviewer_role: ReviewerRole
+    review_scope: ReviewScope = ReviewScope.CALIBRATION
     status: ReviewStatus
     reason_text: str
     source_location: str
+    citation: str = ""
+    mapping_result_id: str | None = None
+    processing_run_id: str | None = None
+    source_artifact_id: str | None = None
+    edit_history: list[dict[str, Any]] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class JudgmentInput(BaseModel):
+    criterion_item_id: str
+    status: ReviewStatus
+    reason_text: str = Field(min_length=1, max_length=1000)
+    citation: str = Field(default="", max_length=2000)
+    source_location: str = Field(default="", max_length=300)
+    edit_reason: str = Field(default="판단 내용 수정", min_length=1, max_length=500)
+
+    @field_validator("reason_text", "edit_reason")
+    @classmethod
+    def reject_blank_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("판단 사유와 수정 사유는 공백일 수 없습니다")
+        return value
+
+    @field_validator("citation", "source_location")
+    @classmethod
+    def strip_evidence(cls, value: str) -> str:
+        return value.strip()
+
+
+class JudgmentSubmission(BaseModel):
+    application_id: str = Field(min_length=1, max_length=100)
+    reviewer_role: ReviewerRole
+    document_verdict: str | None = Field(default=None, max_length=200)
+    document_edit_reason: str = Field(default="지원서 단계 판정 수정", min_length=1, max_length=500)
+    reviews: list[JudgmentInput] = Field(min_length=1)
+
+    @field_validator("document_verdict", "document_edit_reason")
+    @classmethod
+    def strip_verdict(cls, value: str | None) -> str | None:
+        return value.strip() if value else value
+
+    @model_validator(mode="after")
+    def reject_duplicate_items(self) -> "JudgmentSubmission":
+        item_ids = [review.criterion_item_id for review in self.reviews]
+        if len(item_ids) != len(set(item_ids)):
+            raise ValueError("한 번의 제출에는 같은 기준 항목을 중복할 수 없습니다")
+        return self
+
+
+class DocumentJudgment(BaseModel):
+    reviewer_role: ReviewerRole
+    verdict: str
+    edit_history: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class JudgmentRow(BaseModel):
+    criterion_item_id: str
+    criterion_text: str
+    requirement_type: str
+    differences: list[str] = Field(default_factory=list)
+    hr_review: ReviewLog | None = None
+    hm_review: ReviewLog | None = None
+
+
+class JudgmentMatrix(BaseModel):
+    criteria_version_id: str
+    application_id: str
+    hr_document_judgment: DocumentJudgment | None = None
+    hm_document_judgment: DocumentJudgment | None = None
+    rows: list[JudgmentRow] = Field(default_factory=list)
 
 
 class ConflictRow(BaseModel):
