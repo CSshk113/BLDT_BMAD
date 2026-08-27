@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UX Design Validation: Zero100_Builderthon</title>
+<style>
+  :root {
+    --bg: #fafaf9; --surface: #ffffff; --border: #e7e5e4;
+    --text: #1c1917; --muted: #78716c;
+    --verdict-strong: #16a34a; --verdict-adequate: #65a30d;
+    --verdict-thin: #d97706; --verdict-broken: #dc2626;
+    --sev-low: #64748b; --sev-medium: #ca8a04;
+    --sev-high: #ea580c; --sev-critical: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; font-size: 15px; }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+  header.report-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+  .title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .title .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; font-family: ui-monospace, "SF Mono", Menlo, monospace; overflow-wrap: anywhere; }
+  .synthesis { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--verdict-thin); border-radius: 8px; padding: 18px 22px; margin-bottom: 24px; font-size: 15.5px; }
+  .synthesis p { margin: 0 0 10px; } .synthesis p:last-child { margin-bottom: 0; }
+  .dimension-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 24px; }
+  .dim-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .dim-card .dim-name { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .dim-card .dim-verdict { font-size: 14px; font-weight: 600; }
+  section.dimension { margin-bottom: 14px; }
+  section.dimension details { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  section summary { padding: 14px 20px; cursor: pointer; user-select: none; list-style: none; display: flex; align-items: center; gap: 12px; }
+  section summary::-webkit-details-marker { display: none; }
+  section summary::before { content: "▸"; display: inline-block; color: var(--muted); transition: transform 0.15s ease; }
+  section details[open] summary::before { transform: rotate(90deg); }
+  section summary h2 { display: inline; margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.005em; flex: 1; }
+  .verdict-pill { font-size: 11px; padding: 3px 10px; border-radius: 999px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: white; }
+  .verdict-strong { background: var(--verdict-strong); } .verdict-adequate { background: var(--verdict-adequate); }
+  .verdict-thin { background: var(--verdict-thin); } .verdict-broken { background: var(--verdict-broken); }
+  .dim-body { padding: 4px 20px 18px; }
+  .dim-judgment { color: var(--text); font-size: 14.5px; } .dim-judgment p { margin: 0 0 10px; }
+  .findings-list { padding: 0 20px 4px; }
+  article.finding { padding: 14px 0; border-top: 1px solid var(--border); } article.finding:first-child { border-top: none; }
+  article.finding header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  .badge { font-size: 10.5px; padding: 3px 8px; border-radius: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.4; }
+  .badge-sev-low { background: rgba(100,116,139,.12); color: var(--sev-low); }
+  .badge-sev-medium { background: rgba(202,138,4,.14); color: var(--sev-medium); }
+  .badge-sev-high { background: rgba(234,88,12,.14); color: var(--sev-high); }
+  .finding-title { margin: 0; font-size: 15px; font-weight: 500; flex: 1; min-width: 200px; }
+  .finding-location { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--muted); }
+  .finding-note, .finding-fix { margin-top: 6px; font-size: 14px; } .finding-fix strong { color: var(--muted); font-weight: 500; }
+  .mechanical { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; margin-top: 24px; font-size: 14px; }
+  .mechanical h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .mechanical ul { margin: 0; padding-left: 20px; } .mechanical li { margin-bottom: 4px; color: var(--text); }
+  footer.report-footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  footer .meta { display: flex; gap: 24px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header class="report-header"><div class="title"><h1>Zero100_Builderthon — UX Design Validation Report</h1><div class="subtitle">_bmad-output/planning-artifacts/ux-designs/ux-Zero100_Builderthon-2026-08-27</div></div></header>
+  <div class="synthesis">
+    <p><strong>Overall verdict: thin.</strong> 핵심 사용자 흐름, 18개 제품 컴포넌트의 양 문서 대응, 토큰 참조, 정해진 문서 구조는 downstream consumer가 안정적으로 추출할 수 있다.</p>
+    <p>입력 경계의 명시적 대비 위반, 소스에 정의된 상태 열거형의 화면 계약 누락, 질문·핸드오프 권한 주체 충돌은 구현 전에 확정해야 한다. 발견 사항: critical 0 · high 3 · medium 4 · low 1.</p>
+  </div>
+  <div class="dimension-summary">
+    <div class="dim-card"><div class="dim-name">Flow coverage</div><div class="dim-verdict" style="color:var(--verdict-adequate)">adequate</div></div>
+    <div class="dim-card"><div class="dim-name">Token completeness</div><div class="dim-verdict" style="color:var(--verdict-thin)">thin</div></div>
+    <div class="dim-card"><div class="dim-name">Component coverage</div><div class="dim-verdict" style="color:var(--verdict-adequate)">adequate</div></div>
+    <div class="dim-card"><div class="dim-name">State coverage</div><div class="dim-verdict" style="color:var(--verdict-thin)">thin</div></div>
+    <div class="dim-card"><div class="dim-name">Visual reference coverage</div><div class="dim-verdict" style="color:var(--verdict-adequate)">adequate</div></div>
+    <div class="dim-card"><div class="dim-name">Bloat &amp; overspecification</div><div class="dim-verdict" style="color:var(--verdict-strong)">strong</div></div>
+    <div class="dim-card"><div class="dim-name">Inheritance discipline</div><div class="dim-verdict" style="color:var(--verdict-thin)">thin</div></div>
+    <div class="dim-card"><div class="dim-name">Shape fit</div><div class="dim-verdict" style="color:var(--verdict-strong)">strong</div></div>
+  </div>
+
+  <section class="dimension"><details><summary><h2>1. Flow coverage</h2><span class="verdict-pill verdict-adequate">adequate</span></summary><div class="dim-body"><div class="dim-judgment"><p>세 핵심 유저 플로우는 이름을 유지하고 주인공, 번호 단계, Climax, 실패 경로를 갖추며 FR-001~FR-022가 흐름·표면에 연결된다.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">PDF 업로드·처리의 이름 있는 사용자 흐름 부재</h3><span class="finding-location">EXPERIENCE.md §IA, §UF-2, §Requirement Coverage</span></header><div class="finding-note">UF-2가 완료된 지원서를 선택하는 단계부터 시작해 업로드 → 수신 → 파싱 → 매핑 → 완료/실패 경험을 검증하지 않는다.</div><div class="finding-fix"><strong>Fix:</strong> 민지가 PDF를 업로드하고 처리 상태를 추적하는 Key Flow를 추가하거나 UF-1을 확장한다.</div></article></div></details></section>
+
+  <section class="dimension"><details open><summary><h2>2. Token completeness</h2><span class="verdict-pill verdict-thin">thin</span></summary><div class="dim-body"><div class="dim-judgment"><p>25개 토큰 참조는 모두 해석되고 모든 색상에 hex가 있으나, 입력 경계 대비와 상태 배지의 전경/배경 계약이 충분하지 않다.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-high">high</span><h3 class="finding-title">입력 경계가 비텍스트 UI 대비 기준에 미달</h3><span class="finding-location">DESIGN.md colors.border-strong / field-control</span></header><div class="finding-note">#BEC3CF와 #FFFFFF의 계산 대비는 약 1.77:1로 문서가 약속한 3:1 바닥과 충돌한다.</div><div class="finding-fix"><strong>Fix:</strong> 3:1 이상인 입력 전용 border 토큰이나 동등한 형태·톤 신호를 계약한다.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">상태 배지의 전경/배경 토큰과 대비 근거 부재</h3><span class="finding-location">DESIGN.md status-badge, §Colors</span></header><div class="finding-note">성공·주의·실패의 정확한 토큰 쌍과 load-bearing 대비가 정의되지 않았다.</div><div class="finding-fix"><strong>Fix:</strong> 상태별 foreground/background 참조와 검증된 대비를 기록한다.</div></article></div></details></section>
+
+  <section class="dimension"><details><summary><h2>3. Component coverage</h2><span class="verdict-pill verdict-adequate">adequate</span></summary><div class="dim-body"><div class="dim-judgment"><p>제품 고유 컴포넌트 18개가 YAML, DESIGN 시각 규칙, EXPERIENCE 행동 규칙에 정확히 대응한다.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">공통 UI 프리미티브의 상속 근거 부재</h3><span class="finding-location">DESIGN.md §Elevation; EXPERIENCE.md §Interaction Primitives</span></header><div class="finding-note">skeleton, 탭, 팝오버, 확인 UI, 오류 요약, live region을 사용하지만 계약 또는 상속 UI 시스템이 없다.</div><div class="finding-fix"><strong>Fix:</strong> 접근 가능한 primitive 시스템을 명시하거나 핵심 프리미티브를 양쪽 spine에 추가한다.</div></article></div></details></section>
+
+  <section class="dimension"><details open><summary><h2>4. State coverage</h2><span class="verdict-pill verdict-thin">thin</span></summary><div class="dim-body"><div class="dim-judgment"><p>일곱 IA 표면의 주요 오류와 차단 상태는 있으나, 아키텍처 열거형과 후반 표면의 정상·예외 상태 계약이 빠져 있다.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-high">high</span><h3 class="finding-title">아키텍처 상태 열거형이 화면 상태 계약에서 누락</h3><span class="finding-location">ARCHITECTURE-SPINE.md §핵심 상태; EXPERIENCE.md §State Patterns</span></header><div class="finding-note">ARCHIVED, COMPLETED, RESOLVED, CANDIDATE/SELECTED/DELETED의 표시·행동·전이가 명시되지 않았다.</div><div class="finding-fix"><strong>Fix:</strong> 각 열거형을 상태 표의 별도 행으로 만들고 표면, 문구, 행동, 읽기 전용 여부, 다음 전이를 기록한다.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">핸드오프·최종 결정·감사 기록의 정상/예외 상태 부족</h3><span class="finding-location">EXPERIENCE.md §IA, §State Patterns</span></header><div class="finding-note">생성 중·완료, 이미 확정됨, 감사 기록 empty/filter-empty/load-error 등이 표면별로 정의되지 않았다.</div><div class="finding-fix"><strong>Fix:</strong> 세 표면에 cold-load, empty, submitting, success/immutable, stale/conflict, recoverable error를 추가한다.</div></article></div></details></section>
+
+  <section class="dimension"><details><summary><h2>5. Visual reference coverage</h2><span class="verdict-pill verdict-adequate">adequate</span></summary><div class="dim-body"><div class="dim-judgment"><p>시각 자산 파일은 0개여서 orphan은 없고 Code.Presso 방향은 source와 reconciliation 문서에서 구체화되어 있다.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-low">low</span><h3 class="finding-title">시각 참조 충돌 시 spine 우선 규칙이 spine 밖에만 존재</h3><span class="finding-location">reconcile-codepresso-reference.md</span></header><div class="finding-note">향후 mockup/import가 생기면 문서 우선순위를 spine에서 직접 찾을 수 없다.</div><div class="finding-fix"><strong>Fix:</strong> 시각 참조를 처음 연결할 때 두 spine이 시각 자산보다 우선한다는 규칙을 한 번 명시한다.</div></article></div></details></section>
+
+  <section class="dimension"><details><summary><h2>6. Bloat &amp; overspecification</h2><span class="verdict-pill verdict-strong">strong</span></summary><div class="dim-body"><div class="dim-judgment"><p>표와 짧은 규칙 중심이며 소스 설명을 반복하지 않는다. 추가 섹션과 픽셀 값은 downstream 결정과 구현 계약을 소유한다.</p></div></div><div class="findings-list"></div></details></section>
+
+  <section class="dimension"><details open><summary><h2>7. Inheritance discipline</h2><span class="verdict-pill verdict-thin">thin</span></summary><div class="dim-body"><div class="dim-judgment"><p>로컬 source, UF 이름, 제품 컴포넌트와 토큰 참조는 일치하지만 핵심 행위자 권한 계약이 소스와 UX 사이에서 충돌한다.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-high">high</span><h3 class="finding-title">질문·핸드오프 권한 주체가 소스와 UX에서 충돌</h3><span class="finding-location">Architecture AD-5/AD-9/Structural Seed; EXPERIENCE UF-3</span></header><div class="finding-note">질문 생성·수정·삭제·선택과 핸드오프 생성의 담당자가 TECH/LEAD 사이에서 확정되지 않았다.</div><div class="finding-fix"><strong>Fix:</strong> 행동별 RACI/권한 행렬을 확정하고 Architecture와 EXPERIENCE를 함께 갱신한다.</div></article></div></details></section>
+
+  <section class="dimension"><details><summary><h2>8. Shape fit</h2><span class="verdict-pill verdict-strong">strong</span></summary><div class="dim-body"><div class="dim-judgment"><p>DESIGN의 정규 섹션 순서와 EXPERIENCE의 필수·조건부 섹션이 모두 적합하며, 추가 섹션도 제품 요구에 필요한 역할이 분명하다.</p></div></div><div class="findings-list"></div></details></section>
+
+  <div class="mechanical"><h3>Mechanical notes</h3><ul><li>DESIGN.md YAML frontmatter와 필수 필드가 유효하며 색상 21개는 모두 hex다.</li><li>토큰 참조 25개는 모두 해석된다.</li><li>제품 컴포넌트 18개는 양 spine에서 정확히 일치한다.</li><li>로컬 source 4개는 모두 존재한다.</li><li>문서 섹션 구조가 유효하며 Mermaid 블록은 없다.</li><li>imports/mockups/wireframes 파일과 orphan은 각각 0개다.</li></ul></div>
+  <footer class="report-footer"><div class="meta"><span>Rubric: review-rubric.md</span><span>Generated: 2026-08-27T01:02:54Z</span></div></footer>
+</div>
+</body>
+</html>
