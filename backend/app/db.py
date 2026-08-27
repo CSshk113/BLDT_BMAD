@@ -24,7 +24,8 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             status TEXT NOT NULL CHECK(status IN ('DRAFT', 'APPROVED', 'ARCHIVED')),
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            approved_at TEXT
+            approved_at TEXT,
+            approved_by TEXT
         );
         CREATE TABLE IF NOT EXISTS criteria_items (
             id TEXT PRIMARY KEY,
@@ -57,6 +58,20 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             updated_at TEXT NOT NULL,
             UNIQUE(criteria_version_id, application_id, criterion_item_id, reviewer_role)
         );
+        CREATE TABLE IF NOT EXISTS conflict_resolutions (
+            id TEXT PRIMARY KEY,
+            criteria_version_id TEXT NOT NULL REFERENCES criteria_versions(id),
+            application_id TEXT NOT NULL,
+            criterion_item_id TEXT NOT NULL REFERENCES criteria_items(id),
+            status TEXT NOT NULL CHECK(status IN ('RESOLVED')),
+            resolved_by TEXT NOT NULL CHECK(resolved_by IN ('HR')),
+            resolved_at TEXT NOT NULL,
+            resolution_reason TEXT NOT NULL,
+            UNIQUE(criteria_version_id, application_id, criterion_item_id)
+        );
         """
     )
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(criteria_versions)").fetchall()}
+    if "approved_by" not in columns:
+        connection.execute("ALTER TABLE criteria_versions ADD COLUMN approved_by TEXT")
     connection.commit()

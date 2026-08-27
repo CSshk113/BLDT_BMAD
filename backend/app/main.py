@@ -29,4 +29,4 @@ def generate_handoff(criteria_version_id: str):
         raise HTTPException(status_code=404, detail="기준 버전을 찾을 수 없습니다") from error
     if rejection:
         raise HTTPException(status_code=403, detail=rejection.model_dump())
-    return {"status": "ready", "criteria_version_id": criteria_version_id}
+    return {"status": "ready", "handoff_unlocked": True, "criteria_version_id": criteria_version_id}

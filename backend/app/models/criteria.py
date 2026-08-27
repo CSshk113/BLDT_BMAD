@@ -1,5 +1,7 @@
 """Criteria version contracts for the calibration gate."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -33,6 +35,7 @@ class ReviewStatus(StrEnum):
 
 class ConflictStatus(StrEnum):
     OPEN = "OPEN"
+    RESOLVED = "RESOLVED"
     PENDING = "PENDING"
     NONE = "NONE"
 
@@ -56,6 +59,7 @@ class CriteriaVersion(BaseModel):
     created_at: datetime
     updated_at: datetime
     approved_at: datetime | None = None
+    approved_by: str | None = None
 
 
 class CriteriaItemUpdate(BaseModel):
@@ -137,6 +141,7 @@ class ConflictRow(BaseModel):
     differences: list[str] = Field(default_factory=list)
     hr_review: ReviewLog | None = None
     hm_review: ReviewLog | None = None
+    resolution: ConflictResolution | None = None
 
 
 class ReviewMatrix(BaseModel):
@@ -144,6 +149,37 @@ class ReviewMatrix(BaseModel):
     application_id: str
     rows: list[ConflictRow] = Field(default_factory=list)
     open_conflict_count: int = 0
+
+
+class ConflictResolutionInput(BaseModel):
+    application_id: str = Field(min_length=1, max_length=100)
+    criterion_item_id: str = Field(min_length=1, max_length=200)
+    resolution_reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("resolution_reason")
+    @classmethod
+    def reject_blank_resolution(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("충돌 해결 사유는 공백일 수 없습니다")
+        return value.strip()
+
+
+class ConflictResolution(BaseModel):
+    id: str
+    criteria_version_id: str
+    application_id: str
+    criterion_item_id: str
+    status: ConflictStatus
+    resolved_by: ReviewerRole
+    resolved_at: datetime
+    resolution_reason: str
+
+
+class CriteriaApprovalResult(BaseModel):
+    version: CriteriaVersion
+    criteria_version_id: str
+    approved_by: ReviewerRole
+    approved_at: datetime
 
 
 class OfficialActionRejected(BaseModel):

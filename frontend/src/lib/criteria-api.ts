@@ -13,12 +13,16 @@ export function isNetworkError(error: unknown): boolean {
   return error instanceof TypeError;
 }
 
-type ApiCriteriaVersion = {
+export type CriteriaVersionStatus = "DRAFT" | "APPROVED" | "ARCHIVED";
+
+export type ApiCriteriaVersion = {
   id: string;
   position_name: string;
-  status: "DRAFT" | "APPROVED" | "ARCHIVED";
+  status: CriteriaVersionStatus;
   items: Array<{ id: string; criterion_text: string; requirement_type: "필수" | "우대" }>;
   updated_at: string;
+  approved_at?: string | null;
+  approved_by?: ReviewerRole | null;
 };
 
 export type ApiPreview = {
@@ -49,10 +53,11 @@ export type ReviewRow = {
   criterion_item_id: string;
   criterion_text: string;
   requirement_type: "필수" | "우대";
-  conflict_status: "OPEN" | "PENDING" | "NONE";
+  conflict_status: "OPEN" | "RESOLVED" | "PENDING" | "NONE";
   differences: string[];
   hr_review: ReviewLog | null;
   hm_review: ReviewLog | null;
+  resolution?: ConflictResolution | null;
 };
 
 export type ReviewMatrix = {
@@ -73,6 +78,30 @@ export type ReviewSubmission = {
   application_id: string;
   reviewer_role: ReviewerRole;
   reviews: ReviewInput[];
+};
+
+export type ConflictResolution = {
+  id: string;
+  criteria_version_id: string;
+  application_id: string;
+  criterion_item_id: string;
+  status: "RESOLVED";
+  resolved_by: ReviewerRole;
+  resolved_at: string;
+  resolution_reason: string;
+};
+
+export type CriteriaApprovalResult = {
+  version: ApiCriteriaVersion;
+  criteria_version_id: string;
+  approved_by: ReviewerRole;
+  approved_at: string;
+};
+
+export type HandoffResult = {
+  status: "ready";
+  handoff_unlocked: boolean;
+  criteria_version_id: string;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -181,5 +210,26 @@ export async function saveReview(versionId: string, payload: ReviewSubmission) {
     method: "POST",
     headers: { "X-Demo-Role": payload.reviewer_role },
     body: JSON.stringify(payload),
+  });
+}
+
+export async function resolveConflict(versionId: string, payload: { application_id: string; criterion_item_id: string; resolution_reason: string }) {
+  return request<ReviewMatrix>(`/api/criteria/${versionId}/conflicts`, {
+    method: "POST",
+    headers: { "X-Demo-Role": "HR" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function approveCriteria(versionId: string, role: ReviewerRole = "HR") {
+  return request<CriteriaApprovalResult>(`/api/criteria/${versionId}/approve`, {
+    method: "POST",
+    headers: { "X-Demo-Role": role },
+  });
+}
+
+export async function generateHandoff(versionId: string) {
+  return request<HandoffResult>(`/api/handoff/generate?criteria_version_id=${encodeURIComponent(versionId)}`, {
+    method: "POST",
   });
 }

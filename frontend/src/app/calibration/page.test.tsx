@@ -12,6 +12,8 @@ describe("calibration page", () => {
     expect(screen.getAllByText("cv-b2b-sales-v4").length).toBeGreaterThan(0);
     expect(screen.getByText("미승인 · Draft")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /공식 핸드오프 잠김/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "기준 승인" })).toBeDisabled();
+    expect(screen.getByText(/승인 조건 · 열린 충돌/)).toBeInTheDocument();
     expect(screen.getByText("지원서 매핑 미리보기")).toBeInTheDocument();
   });
 
@@ -87,5 +89,7 @@ describe("calibration page", () => {
     expect(screen.getByText("차이: 상태")).toBeInTheDocument();
     expect(screen.getByText("다른 검토자의 기록은 읽기 전용으로 표시됩니다.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "독립 검토 저장" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "기준 승인" })).toBeDisabled();
+    expect(screen.getByText("충돌 해결", { selector: "div" })).toBeInTheDocument();
   });
 });

@@ -8,7 +8,7 @@ export type CriteriaItem = {
 
 type CriteriaVersionPanelProps = {
   versionId: string;
-  status: "DRAFT" | "APPROVED";
+  status: "DRAFT" | "APPROVED" | "ARCHIVED";
   updatedAt: string;
   items: CriteriaItem[];
   editing: boolean;
@@ -38,16 +38,16 @@ export function CriteriaVersionPanel({
         </div>
         <div className="panel-actions">
           <button className="button secondary" type="button" onClick={onCreateVersion}>새 Draft 만들기</button>
-          {editing ? (
+          {status === "DRAFT" && editing ? (
             <button className="button primary" type="button" onClick={onSave}>변경 저장</button>
-          ) : (
+          ) : status === "DRAFT" ? (
             <button className="button secondary" type="button" onClick={onToggleEditing}>기준 수정</button>
-          )}
+          ) : null}
         </div>
       </div>
       <div className="version-meta">
         <span className="version-id">{versionId}</span>
-        <span className={`status-pill ${status.toLowerCase()}`}>{status === "DRAFT" ? "미승인 · Draft" : "승인됨"}</span>
+        <span className={`status-pill ${status.toLowerCase()}`}>{status === "DRAFT" ? "미승인 · Draft" : status === "APPROVED" ? "승인됨" : "보관됨"}</span>
         <span className="updated">마지막 수정 {updatedAt}</span>
       </div>
       <div className="criteria-list">
@@ -55,7 +55,7 @@ export function CriteriaVersionPanel({
           <div className="criterion-row" key={item.id}>
             <span className="criterion-number">{String(index + 1).padStart(2, "0")}</span>
             <span className={`requirement-badge ${item.type === "필수" ? "required" : "preferred"}`}>{item.type}</span>
-            {editing ? (
+            {status === "DRAFT" && editing ? (
               <input
                 aria-label={`${item.type} 기준 ${index + 1}`}
                 className="criterion-input"

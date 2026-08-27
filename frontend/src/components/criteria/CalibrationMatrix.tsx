@@ -17,6 +17,7 @@ type CalibrationMatrixProps = {
   currentRole: ReviewerRole;
   onRoleChange: (role: ReviewerRole) => void;
   onSave: (review: ReviewInput) => Promise<void>;
+  onResolve?: (itemId: string, reason: string) => Promise<void>;
 };
 
 const STATUS_LABELS: Record<ReviewStatus, string> = {
@@ -52,15 +53,17 @@ function ReviewCell({ review, role }: { review: ReviewLog | null; role: Reviewer
 
 function ConflictBadge({ row }: { row: ReviewRow }) {
   if (row.conflict_status === "OPEN") return <Badge variant="destructive">충돌 {row.differences.length}건</Badge>;
+  if (row.conflict_status === "RESOLVED") return <Badge variant="secondary">해결됨</Badge>;
   if (row.conflict_status === "PENDING") return <Badge variant="outline">검토 대기</Badge>;
   return <Badge variant="secondary">일치</Badge>;
 }
 
-export function CalibrationMatrix({ matrix, currentRole, onRoleChange, onSave }: CalibrationMatrixProps) {
+export function CalibrationMatrix({ matrix, currentRole, onRoleChange, onSave, onResolve }: CalibrationMatrixProps) {
   const [selectedItemId, setSelectedItemId] = useState(matrix.rows[0]?.criterion_item_id ?? "");
   const [status, setStatus] = useState<ReviewStatus>("UNVERIFIABLE");
   const [reason, setReason] = useState("");
   const [location, setLocation] = useState("");
+  const [resolutionReason, setResolutionReason] = useState("");
   const [saving, setSaving] = useState(false);
   const selectedRow = matrix.rows.find((row) => row.criterion_item_id === selectedItemId) ?? matrix.rows[0];
 
@@ -72,6 +75,7 @@ export function CalibrationMatrix({ matrix, currentRole, onRoleChange, onSave }:
     setStatus(existing?.status ?? "UNVERIFIABLE");
     setReason(existing?.reason_text ?? "");
     setLocation(existing?.source_location ?? "");
+    setResolutionReason(row.resolution?.resolution_reason ?? "");
   }, [currentRole, matrix, selectedItemId]);
 
   const selectRow = (row: ReviewRow) => {
@@ -144,6 +148,7 @@ export function CalibrationMatrix({ matrix, currentRole, onRoleChange, onSave }:
                     <div className="grid gap-1">
                       <ConflictBadge row={row} />
                       {row.differences.length > 0 && <span className="text-xs text-destructive">차이: {row.differences.join(" · ")}</span>}
+                      {row.resolution && <span className="text-xs text-muted-foreground">해결 사유: {row.resolution.resolution_reason}</span>}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -154,6 +159,7 @@ export function CalibrationMatrix({ matrix, currentRole, onRoleChange, onSave }:
       </Card>
 
       {selectedRow && (
+        <div className="grid gap-4">
         <Card>
           <CardHeader>
             <CardTitle>{ROLE_LABELS[currentRole]} 검토 입력</CardTitle>
@@ -185,6 +191,22 @@ export function CalibrationMatrix({ matrix, currentRole, onRoleChange, onSave }:
             </div>
           </CardContent>
         </Card>
+        {selectedRow.conflict_status === "OPEN" && currentRole === "HR" && onResolve && (
+          <Card>
+            <CardHeader>
+              <CardTitle>충돌 해결</CardTitle>
+              <CardDescription>양쪽 판단은 보존한 채, HR의 해결 사유만 추가합니다.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              <Label htmlFor="conflict-resolution-reason">해결 사유</Label>
+              <Textarea id="conflict-resolution-reason" value={resolutionReason} onChange={(event) => setResolutionReason(event.target.value)} placeholder="충돌을 어떻게 확인하고 해결했는지 남겨주세요." />
+              <div className="flex justify-end">
+                <Button type="button" variant="secondary" onClick={() => onResolve(selectedRow.criterion_item_id, resolutionReason.trim())} disabled={!resolutionReason.trim()}>충돌 해결 기록</Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        </div>
       )}
     </section>
   );

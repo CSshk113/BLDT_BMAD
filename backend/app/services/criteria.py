@@ -6,11 +6,14 @@ import uuid
 from backend.app.db import connect, initialize_schema
 from backend.app.models.criteria import (
     CriteriaItem,
+    CriteriaApprovalResult,
     CriteriaMutationResult,
     CriteriaVersion,
     CriteriaVersionStatus,
     DraftPreview,
     ConflictRow,
+    ConflictResolution,
+    ConflictResolutionInput,
     ConflictStatus,
     MappingStatus,
     OfficialActionRejected,
@@ -56,7 +59,7 @@ def ensure_seed_data() -> None:
         timestamp = now_iso()
         version_id = "cv-b2b-sales-v4"
         connection.execute(
-            "INSERT INTO criteria_versions VALUES (?, ?, 'DRAFT', ?, ?, NULL)",
+            "INSERT INTO criteria_versions (id, position_name, status, created_at, updated_at, approved_at, approved_by) VALUES (?, ?, 'DRAFT', ?, ?, NULL, NULL)",
             (version_id, POSITION_NAME, timestamp, timestamp),
         )
         for index, (text, requirement_type) in enumerate(DEFAULT_ITEMS):
@@ -136,6 +139,7 @@ def _row_to_version(connection, row) -> CriteriaVersion:
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         approved_at=row["approved_at"],
+        approved_by=row["approved_by"],
     )
 
 
@@ -166,7 +170,7 @@ def create_draft_version(source_version_id: str) -> CriteriaVersion:
     with connect() as connection:
         initialize_schema(connection)
         connection.execute(
-            "INSERT INTO criteria_versions VALUES (?, ?, 'DRAFT', ?, ?, NULL)",
+            "INSERT INTO criteria_versions (id, position_name, status, created_at, updated_at, approved_at, approved_by) VALUES (?, ?, 'DRAFT', ?, ?, NULL, NULL)",
             (version_id, source.position_name, timestamp, timestamp),
         )
         for index, item in enumerate(source.items):
@@ -254,6 +258,23 @@ def get_review_matrix(version_id: str, application_id: str = DEMO_APPLICATION_ID
             """,
             (version_id, application_id),
         ).fetchall()
+        resolution_rows = connection.execute(
+            "SELECT * FROM conflict_resolutions WHERE criteria_version_id = ? AND application_id = ?",
+            (version_id, application_id),
+        ).fetchall()
+    resolutions = {
+        row["criterion_item_id"]: ConflictResolution(
+            id=row["id"],
+            criteria_version_id=row["criteria_version_id"],
+            application_id=row["application_id"],
+            criterion_item_id=row["criterion_item_id"],
+            status=row["status"],
+            resolved_by=row["resolved_by"],
+            resolved_at=row["resolved_at"],
+            resolution_reason=row["resolution_reason"],
+        )
+        for row in resolution_rows
+    }
     by_item: dict[str, dict[ReviewerRole, ReviewLog]] = {}
     for row in rows:
         review = _row_to_review(row)
@@ -279,6 +300,9 @@ def get_review_matrix(version_id: str, application_id: str = DEMO_APPLICATION_ID
             if hr_review and hm_review
             else ConflictStatus.PENDING
         )
+        resolution = resolutions.get(item.id)
+        if resolution and differences:
+            conflict_status = ConflictStatus.RESOLVED
         matrix_rows.append(
             ConflictRow(
                 criterion_item_id=item.id,
@@ -288,6 +312,7 @@ def get_review_matrix(version_id: str, application_id: str = DEMO_APPLICATION_ID
                 differences=differences,
                 hr_review=hr_review,
                 hm_review=hm_review,
+                resolution=resolution,
             )
         )
     return ReviewMatrix(
@@ -312,7 +337,7 @@ def save_reviews(version_id: str, submission: ReviewSubmission, actor_role: Revi
         for review in submission.reviews:
             existing = connection.execute(
                 """
-                SELECT id, created_at FROM review_logs
+                SELECT id, created_at, review_status, reason_text, source_location FROM review_logs
                 WHERE criteria_version_id = ? AND application_id = ?
                   AND criterion_item_id = ? AND reviewer_role = ?
                 """,
@@ -348,6 +373,20 @@ def save_reviews(version_id: str, submission: ReviewSubmission, actor_role: Revi
                         timestamp,
                     ),
                 )
+            review_changed = (
+                not existing
+                or existing["review_status"] != review.status
+                or existing["reason_text"] != review.reason_text
+                or existing["source_location"] != review.source_location
+            )
+            if review_changed:
+                # A changed review can reopen a previously resolved disagreement.
+                # Keep the ReviewLog, but require a fresh HR resolution.
+                connection.execute(
+                    "DELETE FROM conflict_resolutions "
+                    "WHERE criteria_version_id = ? AND application_id = ? AND criterion_item_id = ?",
+                    (version_id, submission.application_id, review.criterion_item_id),
+                )
         connection.commit()
     return get_review_matrix(version_id, submission.application_id)
 
@@ -361,4 +400,71 @@ def reject_official_action(version_id: str) -> OfficialActionRejected | None:
         message="기준 버전이 승인되기 전에는 공식 핸드오프와 최종 결정을 사용할 수 없습니다.",
         criteria_version_id=version.id,
         missing_conditions=["HM 검토 완료", "열린 충돌 0건", "기준 버전 승인"],
+    )
+
+
+def resolve_conflict(version_id: str, payload: ConflictResolutionInput, actor_role: ReviewerRole) -> ReviewMatrix:
+    version = get_version(version_id)
+    if version.status != CriteriaVersionStatus.DRAFT:
+        raise ValueError("승인된 기준의 충돌은 변경할 수 없습니다")
+    if actor_role != ReviewerRole.HR:
+        raise PermissionError("충돌 해결은 HR만 수행할 수 있습니다")
+    matrix = get_review_matrix(version_id, payload.application_id)
+    row = next((candidate for candidate in matrix.rows if candidate.criterion_item_id == payload.criterion_item_id), None)
+    if row is None:
+        raise ValueError("기준 버전에 속하지 않은 항목입니다")
+    if row.conflict_status != ConflictStatus.OPEN:
+        raise ValueError("열린 충돌 항목만 해결할 수 있습니다")
+    timestamp = now_iso()
+    with connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO conflict_resolutions
+            (id, criteria_version_id, application_id, criterion_item_id, status, resolved_by, resolved_at, resolution_reason)
+            VALUES (?, ?, ?, ?, 'RESOLVED', 'HR', ?, ?)
+            ON CONFLICT(criteria_version_id, application_id, criterion_item_id)
+            DO UPDATE SET status = 'RESOLVED', resolved_by = 'HR', resolved_at = excluded.resolved_at, resolution_reason = excluded.resolution_reason
+            """,
+            (
+                f"resolution-{uuid.uuid4().hex[:12]}",
+                version_id,
+                payload.application_id,
+                payload.criterion_item_id,
+                timestamp,
+                payload.resolution_reason,
+            ),
+        )
+        connection.commit()
+    return get_review_matrix(version_id, payload.application_id)
+
+
+def approve_criteria(version_id: str, actor_role: ReviewerRole) -> CriteriaApprovalResult:
+    version = get_version(version_id)
+    if actor_role != ReviewerRole.HR:
+        raise PermissionError("기준 승인은 HR만 수행할 수 있습니다")
+    if version.status != CriteriaVersionStatus.DRAFT:
+        raise ValueError("DRAFT 기준만 승인할 수 있습니다")
+    matrix = get_review_matrix(version_id)
+    pending_rows = [row for row in matrix.rows if row.conflict_status == ConflictStatus.PENDING]
+    open_rows = [row for row in matrix.rows if row.conflict_status == ConflictStatus.OPEN]
+    if open_rows or pending_rows:
+        missing = []
+        if open_rows:
+            missing.append(f"열린 충돌 {len(open_rows)}건 해결")
+        if pending_rows:
+            missing.append(f"양쪽 검토 완료 {len(pending_rows)}건")
+        raise ValueError("승인 조건이 충족되지 않았습니다: " + " · ".join(missing))
+    timestamp = now_iso()
+    with connect() as connection:
+        connection.execute(
+            "UPDATE criteria_versions SET status = 'APPROVED', approved_at = ?, approved_by = 'HR', updated_at = ? WHERE id = ?",
+            (timestamp, timestamp, version_id),
+        )
+        connection.commit()
+    approved = get_version(version_id)
+    return CriteriaApprovalResult(
+        version=approved,
+        criteria_version_id=approved.id,
+        approved_by=ReviewerRole.HR,
+        approved_at=approved.approved_at,
     )

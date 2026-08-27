@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Header, HTTPException, status
 
-from backend.app.models.criteria import CriteriaVersionUpdate, ReviewMatrix, ReviewSubmission, ReviewerRole
+from backend.app.models.criteria import CriteriaApprovalResult, CriteriaVersionUpdate, ConflictResolutionInput, ReviewMatrix, ReviewSubmission, ReviewerRole
 from backend.app.services import criteria
 
 
@@ -65,6 +65,43 @@ def save_reviews(
     actor_role = x_demo_role or payload.reviewer_role
     try:
         return criteria.save_reviews(version_id, payload, actor_role)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="기준 버전을 찾을 수 없습니다") from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.post("/{version_id}/conflicts", response_model=ReviewMatrix)
+def resolve_conflict(
+    version_id: str,
+    payload: ConflictResolutionInput,
+    x_demo_role: ReviewerRole | None = Header(default=None),
+):
+    if x_demo_role is None:
+        raise HTTPException(status_code=403, detail="검토자 역할이 필요합니다")
+    actor_role = x_demo_role
+    try:
+        return criteria.resolve_conflict(version_id, payload, actor_role)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="기준 버전을 찾을 수 없습니다") from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.post("/{version_id}/approve", response_model=CriteriaApprovalResult)
+def approve_criteria(
+    version_id: str,
+    x_demo_role: ReviewerRole | None = Header(default=None),
+):
+    if x_demo_role is None:
+        raise HTTPException(status_code=403, detail="검토자 역할이 필요합니다")
+    actor_role = x_demo_role
+    try:
+        return criteria.approve_criteria(version_id, actor_role)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="기준 버전을 찾을 수 없습니다") from error
     except PermissionError as error:
