@@ -20,6 +20,7 @@ colors:
   ink-muted: '#838B9D'
   border-default: '#E8EBEE'
   border-strong: '#BEC3CF'
+  border-input: '#737B8C'
   primary: '#1A61EA'
   primary-hover: '#195CDE'
   primary-pressed: '#173999'
@@ -104,6 +105,14 @@ components:
   status-badge:
     radius: '{rounded.full}'
     font: '{typography.meta}'
+    success-background: '{colors.success-subtle}'
+    success-foreground: '{colors.success}'
+    warning-background: '{colors.warning-subtle}'
+    warning-foreground: '{colors.warning}'
+    danger-background: '{colors.danger-subtle}'
+    danger-foreground: '{colors.danger}'
+    neutral-background: '{colors.surface-subtle}'
+    neutral-foreground: '{colors.ink-secondary}'
   gate-banner:
     background: '{colors.warning-subtle}'
     foreground: '{colors.warning}'
@@ -160,9 +169,34 @@ components:
     radius: '{rounded.md}'
   field-control:
     background: '{colors.surface-raised}'
-    border: '{colors.border-strong}'
+    border: '{colors.border-input}'
     focus: '{colors.focus-ring}'
     radius: '{rounded.md}'
+  loading-skeleton:
+    background: '{colors.surface-subtle}'
+    edge: '{colors.border-default}'
+    radius: '{rounded.lg}'
+  tab-switcher:
+    background: '{colors.surface-base}'
+    active-background: '{colors.surface-raised}'
+    active-foreground: '{colors.ink-primary}'
+    focus: '{colors.focus-ring}'
+    radius: '{rounded.md}'
+  overlay-surface:
+    background: '{colors.surface-raised}'
+    border: '{colors.border-strong}'
+    radius: '{rounded.xl}'
+  confirmation-dialog:
+    background: '{colors.surface-raised}'
+    foreground: '{colors.ink-primary}'
+    radius: '{rounded.xl}'
+  error-summary:
+    background: '{colors.danger-subtle}'
+    foreground: '{colors.danger}'
+    border: '{colors.danger}'
+    radius: '{rounded.lg}'
+  live-region:
+    note: 'Visually hidden by default; visible only when the same status also needs persistent on-screen text.'
 ---
 
 ## Brand & Style
@@ -171,14 +205,17 @@ Evidence Handoff는 후보자를 점수화하는 대시보드가 아니라, 사�
 
 시각적 위계는 `원문 → 기준 → 사람의 판단` 순서를 지원한다. 블루는 현재 맥락과 행동에만 사용하고, 충족 여부나 합격 가능성처럼 오해될 수 있는 의미에는 사용하지 않는다. 자동 합격·탈락, 종합 점수, 순위가 있는 듯한 차트 표현은 금지한다.
 
+이 문서와 `EXPERIENCE.md`가 구현 계약이다. 이후 생성되는 mockup·wireframe·import가 두 spine과 충돌하면 spine이 우선한다.
+
 ## Colors
 
 - **Code Blue** `{colors.primary}`는 주요 행동, 현재 단계, 선택된 근거의 연결선에만 쓴다. 흰색과 대비는 5.33:1이다.
 - **Deep Navy** `{colors.navy}`는 전역 진행 구조와 발표에서 흐름의 중심축을 고정한다. 넓은 본문 배경으로 남용하지 않는다.
 - **Paper White / Cool Canvas** `{colors.surface-raised}`와 `{colors.surface-base}`는 고밀도 정보를 카드와 캔버스로 분리한다.
 - **Ink** `{colors.ink-primary}`와 `{colors.ink-secondary}`가 본문·보조 본문을 담당한다. `{colors.ink-muted}`는 큰 텍스트나 비필수 메타에만 사용한다.
-- **Success / Warning / Danger**는 승인·주의·실패 상태에만 사용한다. 반드시 아이콘과 텍스트 레이블을 함께 둔다. 검토 상태 `충족/부분 충족/미충족/확인 불가`는 색만으로 구분하지 않는다.
+- **Success / Warning / Danger**는 승인·주의·실패 상태에만 사용한다. `status-badge`는 success `{colors.success}`/`{colors.success-subtle}` 4.54:1, warning `{colors.warning}`/`{colors.warning-subtle}` 5.41:1, danger `{colors.danger}`/`{colors.danger-subtle}` 5.13:1의 전경·배경 쌍을 사용한다. 반드시 아이콘과 텍스트 레이블을 함께 둔다. 검토 상태 `충족/부분 충족/미충족/확인 불가`는 색만으로 구분하지 않는다.
 - 선택 배경 `{colors.surface-selected}` 위 본문은 `{colors.ink-primary}`를 유지한다. 컬러 배경 위 긴 본문은 두지 않는다.
+- 입력 경계 `{colors.border-input}`는 흰 표면 `{colors.surface-raised}`에서 4.25:1이다. `{colors.border-default}`와 `{colors.border-strong}`은 장식적 분리선에만 쓰고 입력·선택·포커스 같은 load-bearing 경계에는 쓰지 않는다.
 
 ## Typography
 
@@ -206,22 +243,28 @@ Code.Presso와 언어적 연속성을 유지하기 위해 Pretendard를 기본�
 |---|---|
 | `workflow-nav` | 네이비 바 위 단계 레이블. 현재 단계만 블루 강조와 `현재` 텍스트를 함께 표시한다. |
 | `context-bar` | 포지션, 기준 버전, 승인 상태, 현재 역할을 한 줄에 묶는 흰 표면. 버전 ID는 mono. |
-| `status-badge` | 텍스트+아이콘 조합. 상태별 전경/옅은 배경을 사용하고 단독 색 점은 금지한다. |
+| `status-badge` | 텍스트+아이콘 조합. YAML에 정의된 success·warning·danger·neutral 전경/배경 쌍만 사용하고 단독 색 점은 금지한다. |
 | `gate-banner` | 승인 전 공식 출력 차단 사유와 다음 행동을 경고색 표면에 표시한다. |
-| `calibration-matrix` | 기준 행, HR 열, TECH 열, 충돌 열의 정렬된 매트릭스. 충돌 행만 약한 경고 표면. |
+| `calibration-matrix` | 기준 행, HR 열, HM 열, 충돌 열의 정렬된 매트릭스. 충돌 행만 약한 경고 표면. |
 | `application-row` | 이름, 처리 단계, 근거 커버리지 상태, 오류 여부를 한 행에 표시한다. 종합 점수 칸은 두지 않는다. |
 | `processing-stepper` | 수신·파싱·매핑·완료 단계를 텍스트와 아이콘으로 표시한다. 실패는 마지막 성공 단계와 함께 보존한다. |
 | `evidence-split-view` | 55:45 패널, 명확한 구분선, 각 패널 독립 스크롤. 선택 근거는 양쪽에서 같은 블루 연결 상태를 쓴다. |
 | `document-viewer` | PDF/Markdown 원문 표면. 좌표가 있으면 얇은 앰버 하이라이트, 없으면 문맥 박스로 대체한다. |
 | `evidence-card` | 기준, 원문 인용구, 위치, 근거 상태를 한 카드에 묶는다. 선택 카드는 블루 테두리+옅은 배경. |
 | `review-control` | 4가지 검토 상태와 판단 사유 입력을 묶는다. 포커스 링은 2px `{colors.focus-ring}`. |
-| `reviewer-comparison` | HR·TECH를 같은 폭으로 분리하고 이름·역할·근거를 반복 노출한다. 합의된 단일 점수는 표시하지 않는다. |
+| `reviewer-comparison` | HR·HM을 같은 폭으로 분리하고 이름·역할·근거를 반복 노출한다. 합의된 단일 점수는 표시하지 않는다. |
 | `handoff-card` | 적용 기준, 근거, 이견, 미검증 항목, 질문 후보의 구획이 한 화면에서 읽히는 큰 카드. |
 | `question-candidate` | 질문, 이유, 연결 기준, 참조 근거, 편집·선택 상태를 수직 구조로 표시한다. 선택은 체크와 레이블을 함께 사용한다. |
 | `verification-comparison` | 서류 단계 가설과 면접 검증 결과를 병렬 열로 보여준다. 최종 결정 입력은 별도 구획이다. |
 | `audit-timeline` | 버전·행위자·시각·변경을 시간순으로 표시한다. 삭제된 기록도 상태로 보존한다. |
 | `button-primary` | 블루 채움, 흰 텍스트. 화면당 하나의 우선 행동에만 사용한다. 위험 행동에는 쓰지 않는다. |
-| `field-control` | 1px 테두리와 명시적 레이블. 오류 시 위험색 테두리+오류 문장을 함께 표시한다. |
+| `field-control` | 1px `{colors.border-input}` 테두리와 명시적 레이블. 오류 시 위험색 테두리+오류 문장을 함께 표시한다. |
+| `loading-skeleton` | 실제 레이아웃과 같은 옅은 블록. 상태·값·완료 여부를 암시하는 색이나 가짜 텍스트는 넣지 않는다. |
+| `tab-switcher` | 좁은 화면의 원문/기준 전환과 표면 내 하위 뷰에 사용한다. 활성 탭은 채움+레이블, 키보드 포커스는 2px 링으로 표시한다. |
+| `overlay-surface` | 드롭다운·팝오버·비파괴 편집 표면의 공통 컨테이너. 그림자를 허용하되 배경·테두리·제목으로 경계를 함께 보인다. |
+| `confirmation-dialog` | 승인·핸드오프 생성·soft delete·최종 결정 확인 전용. 대상 ID와 되돌릴 수 없는 결과를 제목 아래 본문에 표시한다. |
+| `error-summary` | 폼 상단의 위험색 옅은 표면. 오류 수와 첫 오류 링크를 제공하며 인라인 오류를 대체하지 않는다. |
+| `live-region` | 기본은 시각적으로 숨긴 상태 알림 영역. 같은 결과가 필요한 경우 화면에도 지속 텍스트로 남기며, 색·애니메이션만으로 알리지 않는다. |
 
 ## Do's and Don'ts
 
@@ -230,6 +273,6 @@ Code.Presso와 언어적 연속성을 유지하기 위해 Pretendard를 기본�
 | 블루를 현재 맥락·주요 행동·근거 연결에 사용 | 블루를 `충족`이나 합격 가능성의 암시로 사용 |
 | 모든 상태에 텍스트와 아이콘을 병기 | 초록·노랑·빨강 점만으로 상태 구분 |
 | 원문과 판단을 시각적으로 분리하되 연결 유지 | AI 요약을 원문보다 더 강하게 표시 |
-| HR·TECH 의견을 같은 위계로 병렬 표시 | 두 의견을 평균·점수·단일 결론으로 합치기 |
+| HR·HM 의견을 같은 위계로 병렬 표시 | 두 의견을 평균·점수·단일 결론으로 합치기 |
 | 차단 사유와 해제 조건을 같은 화면에 표시 | 비활성 버튼만 두고 이유를 숨기기 |
 | Code.Presso의 블루·산세리프·정돈감을 계승 | 홈페이지 일러스트, 광택 그라데이션, 대형 마케팅 타이포 복제 |
