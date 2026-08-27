@@ -119,6 +119,15 @@ class ApplicationDetail(ApplicationSummary):
     can_review: bool = False
 
 
+class ApplicationDocument(BaseModel):
+    application_id: str
+    criteria_version_id: str
+    processing_run_id: str
+    artifact_id: str
+    source_type: ArtifactType
+    content: str
+
+
 class ApplicationsList(BaseModel):
     items: list[ApplicationSummary] = Field(default_factory=list)
     total_ledger_count: int = 0

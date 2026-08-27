@@ -68,6 +68,15 @@ export type ApplicationDetail = ApplicationSummary & {
   can_review: boolean;
 };
 
+export type ApplicationDocument = {
+  application_id: string;
+  criteria_version_id: string;
+  processing_run_id: string;
+  artifact_id: string;
+  source_type: "NORMALIZED_MARKDOWN";
+  content: string;
+};
+
 export type ApplicationsList = {
   items: ApplicationSummary[];
   total_ledger_count: number;
@@ -77,9 +86,16 @@ export type ApplicationsList = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+export class ApplicationApiError extends Error {
+  constructor(public readonly status: number) {
+    super(`Application API request failed: ${status}`);
+    this.name = "ApplicationApiError";
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init);
-  if (!response.ok) throw new Error(`API request failed: ${response.status}`);
+  if (!response.ok) throw new ApplicationApiError(response.status);
   return response.json() as Promise<T>;
 }
 
@@ -89,6 +105,11 @@ export function listApplications() {
 
 export function getApplication(applicationId: string) {
   return request<ApplicationDetail>(`/api/applications/${encodeURIComponent(applicationId)}`);
+}
+
+export function getApplicationDocument(applicationId: string, runId?: string) {
+  const query = runId ? `?run_id=${encodeURIComponent(runId)}` : "";
+  return request<ApplicationDocument>(`/api/applications/${encodeURIComponent(applicationId)}/document${query}`);
 }
 
 export function uploadApplication(input: { file: File; candidateToken: string; positionName: string; criteriaVersionId: string }) {

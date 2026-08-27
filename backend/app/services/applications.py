@@ -13,6 +13,7 @@ from backend.app.db import connect, initialize_schema
 from backend.app.models.applications import (
     ApplicationArtifact,
     ApplicationDetail,
+    ApplicationDocument,
     ApplicationSource,
     ApplicationSummary,
     ApplicationsList,
@@ -37,6 +38,10 @@ DEMO_POSITION = "B2B 영업 매니저 5년 이상"
 
 class InvalidUploadError(ValueError):
     """The request is not an admissible PDF upload."""
+
+
+class DocumentNotReadyError(ValueError):
+    """The requested application has no readable completed Markdown artifact."""
 
 
 def now_iso() -> str:
@@ -258,6 +263,47 @@ def get_application(application_id: str) -> ApplicationDetail:
         if row is None:
             raise KeyError(application_id)
         return _detail_from_row(connection, row)
+
+
+def get_document(application_id: str, run_id: str | None = None) -> ApplicationDocument:
+    """Return only completed normalized Markdown, never its server path."""
+    ensure_application_catalog()
+    with connect() as connection:
+        application = connection.execute("SELECT * FROM applications WHERE id = ?", (application_id,)).fetchone()
+        if application is None:
+            raise KeyError(application_id)
+        if run_id is not None:
+            completed_run = connection.execute(
+                "SELECT * FROM processing_runs WHERE id = ? AND application_id = ? AND status = 'COMPLETED'",
+                (run_id, application_id),
+            ).fetchone()
+        else:
+            completed_run = connection.execute(
+                "SELECT * FROM processing_runs WHERE application_id = ? AND status = 'COMPLETED' ORDER BY completed_at DESC, created_at DESC LIMIT 1",
+                (application_id,),
+            ).fetchone()
+        if completed_run is None:
+            raise DocumentNotReadyError("완료된 Markdown 산출물이 없어 원문을 열 수 없습니다")
+        artifact = connection.execute(
+            "SELECT id, storage_path FROM application_artifacts WHERE application_id = ? AND processing_run_id = ? AND artifact_type = ? AND is_current = 1 ORDER BY created_at DESC LIMIT 1",
+            (application_id, completed_run["id"], ArtifactType.NORMALIZED_MARKDOWN),
+        ).fetchone()
+        if artifact is None:
+            raise DocumentNotReadyError("선택한 처리 실행의 정규화 Markdown이 없습니다")
+        try:
+            content = Path(artifact["storage_path"]).read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise DocumentNotReadyError("원문 산출물을 읽을 수 없습니다") from error
+        if not content.strip():
+            raise DocumentNotReadyError("원문 산출물이 비어 있어 검토할 수 없습니다")
+        return ApplicationDocument(
+            application_id=application_id,
+            criteria_version_id=completed_run["criteria_version_id"],
+            processing_run_id=completed_run["id"],
+            artifact_id=artifact["id"],
+            source_type=ArtifactType.NORMALIZED_MARKDOWN,
+            content=content,
+        )
 
 
 def _write_artifact(connection, *, application_id: str, run_id: str | None, artifact_type: ArtifactType, path: Path, original_filename: str, mime_type: str, promote: bool = False) -> None:

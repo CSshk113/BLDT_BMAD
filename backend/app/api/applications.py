@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
-from backend.app.models.applications import ApplicationDetail, ApplicationsList
+from backend.app.models.applications import ApplicationDetail, ApplicationDocument, ApplicationsList
 from backend.app.services import applications
 
 
@@ -22,6 +22,16 @@ def get_application(application_id: str) -> ApplicationDetail:
         return applications.get_application(application_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="지원서를 찾을 수 없습니다") from error
+
+
+@router.get("/{application_id}/document", response_model=ApplicationDocument)
+def get_document(application_id: str, run_id: str | None = None) -> ApplicationDocument:
+    try:
+        return applications.get_document(application_id, run_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="지원서를 찾을 수 없습니다") from error
+    except applications.DocumentNotReadyError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @router.post("/{application_id}/process", response_model=ApplicationDetail)

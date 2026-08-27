@@ -141,3 +141,35 @@ def test_mapping_failure_records_mapping_step(client: TestClient, monkeypatch: p
     assert result.processing_status == "FAILED"
     assert result.failed_step == "MAPPING"
     assert result.failure_reason == "정규화 실패"
+
+
+def test_document_endpoint_returns_markdown_for_the_requested_completed_run(client: TestClient):
+    response = upload(client, parser=FakeParser("# 후보\n\n정확한 원문 문장입니다."))
+    application_id = response.json()["id"]
+    run_id = response.json()["processing_runs"][0]["id"]
+
+    document = client.get(f"/api/applications/{application_id}/document", params={"run_id": run_id})
+
+    assert document.status_code == 200
+    payload = document.json()
+    with db.connect() as connection:
+        artifact = connection.execute(
+            "SELECT id FROM application_artifacts WHERE application_id = ? AND processing_run_id = ? AND artifact_type = 'NORMALIZED_MARKDOWN' AND is_current = 1",
+            (application_id, run_id),
+        ).fetchone()
+    assert payload == {
+        "application_id": application_id,
+        "criteria_version_id": "cv-b2b-sales-v4",
+        "processing_run_id": run_id,
+        "artifact_id": artifact["id"],
+        "source_type": "NORMALIZED_MARKDOWN",
+        "content": "# 후보\n\n정확한 원문 문장입니다.\n",
+    }
+
+
+def test_document_endpoint_blocks_incomplete_processing(client: TestClient):
+    response = upload(client, parser=FailingParser())
+
+    document = client.get(f"/api/applications/{response.json()['id']}/document")
+
+    assert document.status_code == 409
