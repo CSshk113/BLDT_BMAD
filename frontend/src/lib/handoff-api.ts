@@ -15,7 +15,7 @@ export type HandoffCard = {
     judgments: Record<string, unknown>;
     differences: Array<{ criterion_item_id: string; fields: string[] }>;
     insufficient_evidence: Array<{ criterion_item_id: string; criterion_text: string; question_needed: boolean }>;
-    interview_questions: unknown[];
+    interview_questions: QuestionCandidate[];
     interview_results: unknown[];
   };
   created_by: string;
@@ -25,6 +25,32 @@ export type HandoffCard = {
 };
 
 export type HandoffGenerationResponse = { card: HandoffCard; already_exists: boolean };
+
+export type QuestionCandidate = {
+  id: string;
+  original_question: string;
+  current_question: string;
+  reason: string;
+  criterion_item_ids: string[];
+  evidence_ids: string[];
+  question_type: "BEI" | "SJT" | "KNOWLEDGE" | string;
+  status: "CANDIDATE" | "SELECTED" | "DELETED";
+  created_at: string;
+  edit_history: Array<{
+    action?: string;
+    previous_question?: string;
+    new_question?: string;
+    actor: string;
+    timestamp: string;
+    reason: string;
+  }>;
+};
+
+export type QuestionCandidateListResponse = {
+  card_id: string;
+  candidates: QuestionCandidate[];
+  selected_question_ids: string[];
+};
 
 export class HandoffApiError extends ApiRequestError {
   constructor(status: number) {
@@ -45,4 +71,33 @@ export function generateHandoffCard(versionId: string, applicationId: string, ro
 
 export function loadHandoffCard(cardId: string) {
   return request<HandoffCard>(`/api/handoff/${encodeURIComponent(cardId)}`);
+}
+
+export function generateQuestionCandidates(cardId: string, role = "LEAD") {
+  return request<QuestionCandidateListResponse>(`/api/questions/${encodeURIComponent(cardId)}/generate`, { method: "POST", headers: { "X-Demo-Role": role } });
+}
+
+export function loadQuestionCandidates(cardId: string, role = "LEAD", selectedOnly = false) {
+  const query = selectedOnly ? "?selected_only=true" : "";
+  return request<QuestionCandidateListResponse>(`/api/questions/${encodeURIComponent(cardId)}${query}`, { headers: { "X-Demo-Role": role } });
+}
+
+export function editQuestionCandidate(cardId: string, questionId: string, currentQuestion: string, editReason: string, role: "HR" | "HM") {
+  return request<QuestionCandidate>(`/api/questions/${encodeURIComponent(cardId)}/${encodeURIComponent(questionId)}`, {
+    method: "PATCH",
+    headers: { "X-Demo-Role": role },
+    body: JSON.stringify({ current_question: currentQuestion, edit_reason: editReason }),
+  });
+}
+
+export function deleteQuestionCandidate(cardId: string, questionId: string, role: "HR" | "HM") {
+  return request<QuestionCandidate>(`/api/questions/${encodeURIComponent(cardId)}/${encodeURIComponent(questionId)}`, { method: "DELETE", headers: { "X-Demo-Role": role } });
+}
+
+export function selectQuestionCandidate(cardId: string, questionId: string, selected: boolean, role = "LEAD") {
+  return request<QuestionCandidate>(`/api/questions/${encodeURIComponent(cardId)}/${encodeURIComponent(questionId)}/select`, {
+    method: "POST",
+    headers: { "X-Demo-Role": role },
+    body: JSON.stringify({ selected }),
+  });
 }

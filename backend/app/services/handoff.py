@@ -9,7 +9,17 @@ import sqlite3
 import uuid
 
 from backend.app.db import connect, initialize_schema
-from backend.app.models.handoff import HandoffCard, HandoffGenerationResponse, HandoffPrerequisiteError, HandoffStateError, HandoffStatus
+from backend.app.models.handoff import (
+    HandoffCard,
+    HandoffGenerationResponse,
+    HandoffPrerequisiteError,
+    HandoffStateError,
+    HandoffStatus,
+    QuestionCandidate,
+    QuestionCandidateEditInput,
+    QuestionCandidateListResponse,
+    QuestionCandidateStatus,
+)
 from backend.app.services import criteria
 
 
@@ -225,3 +235,155 @@ def generate_card(criteria_version_id: str, application_id: str, created_by: str
             raise HandoffStateError("핸드오프 카드 생성이 실패했습니다", _card_from_row(failed_row)) from error
         row = connection.execute("SELECT * FROM handoff_cards WHERE id = ?", (card_id,)).fetchone()
     return HandoffGenerationResponse(card=_card_from_row(row))
+
+
+def _question_candidates(payload: dict) -> list[QuestionCandidate]:
+    values = payload.get("interview_questions", [])
+    if not isinstance(values, list):
+        raise HandoffStateError("핸드오프 카드의 질문 후보 payload가 손상되었습니다")
+    try:
+        return [QuestionCandidate.model_validate(value) for value in values]
+    except ValueError as error:
+        raise HandoffStateError("핸드오프 카드의 질문 후보 payload가 손상되었습니다") from error
+
+
+def list_question_candidates(card_id: str, *, selected_only: bool = False) -> QuestionCandidateListResponse:
+    card = get_card(card_id)
+    if card.status != HandoffStatus.READY:
+        raise HandoffStateError("READY 상태의 핸드오프 카드만 질문 후보를 조회할 수 있습니다", card)
+    candidates = _question_candidates(card.payload)
+    candidates = [candidate for candidate in candidates if candidate.status != QuestionCandidateStatus.DELETED]
+    if selected_only:
+        candidates = [candidate for candidate in candidates if candidate.status == QuestionCandidateStatus.SELECTED]
+    return QuestionCandidateListResponse(
+        card_id=card_id,
+        candidates=candidates,
+        selected_question_ids=[candidate.id for candidate in candidates if candidate.status == QuestionCandidateStatus.SELECTED],
+    )
+
+
+def generate_question_candidates(card_id: str) -> QuestionCandidateListResponse:
+    from backend.app.services import questions
+
+    with connect() as connection:
+        initialize_schema(connection)
+        row = connection.execute("SELECT * FROM handoff_cards WHERE id = ?", (card_id,)).fetchone()
+        if row is None:
+            raise KeyError(card_id)
+        card = _card_from_row(row)
+        if card.status != HandoffStatus.READY:
+            raise HandoffStateError("READY 상태의 핸드오프 카드만 질문을 생성할 수 있습니다", card)
+        generated = questions.generate_candidates(card)
+        payload = dict(card.payload)
+        current = _question_candidates(payload)
+        payload["interview_questions"] = [
+            candidate.model_dump(mode="json") for candidate in [*current, *generated]
+        ]
+        result = connection.execute(
+            "UPDATE handoff_cards SET payload_json = ?, updated_at = ? WHERE id = ? AND status = 'READY'",
+            (json.dumps(payload, ensure_ascii=False), now_iso(), card_id),
+        )
+        if result.rowcount != 1:
+            raise HandoffStateError("핸드오프 카드가 변경되어 질문 후보를 저장하지 못했습니다", card)
+        connection.commit()
+    return list_question_candidates(card_id)
+
+
+def _mutate_question(card_id: str, question_id: str, mutate, actor_role: str) -> QuestionCandidate:
+    if actor_role not in {"HR", "HM"}:
+        raise PermissionError("질문 후보 수정 권한이 없습니다")
+    with connect() as connection:
+        initialize_schema(connection)
+        row = connection.execute("SELECT * FROM handoff_cards WHERE id = ?", (card_id,)).fetchone()
+        if row is None:
+            raise KeyError(card_id)
+        card = _card_from_row(row)
+        if card.status != HandoffStatus.READY:
+            raise HandoffStateError("READY 상태의 핸드오프 카드만 질문 후보를 수정할 수 있습니다", card)
+        candidates = _question_candidates(card.payload)
+        target = next((candidate for candidate in candidates if candidate.id == question_id), None)
+        if target is None:
+            raise KeyError(question_id)
+        if target.status == QuestionCandidateStatus.DELETED:
+            raise HandoffStateError("삭제된 질문 후보는 수정할 수 없습니다", card)
+        changed = mutate(target, candidates, card.payload)
+        payload = dict(card.payload)
+        payload["interview_questions"] = [candidate.model_dump(mode="json") for candidate in candidates]
+        result = connection.execute(
+            "UPDATE handoff_cards SET payload_json = ?, updated_at = ? WHERE id = ? AND status = 'READY'",
+            (json.dumps(payload, ensure_ascii=False), now_iso(), card_id),
+        )
+        if result.rowcount != 1:
+            raise HandoffStateError("핸드오프 카드가 변경되어 질문 후보를 저장하지 못했습니다", card)
+        connection.commit()
+    return changed
+
+
+def update_question_candidate(card_id: str, question_id: str, payload: QuestionCandidateEditInput, actor_role: str) -> QuestionCandidate:
+    from backend.app.services.questions import validate_candidate
+
+    if not payload.edit_reason.strip():
+        raise ValueError("변경 사유를 입력하세요")
+
+    def mutate(target: QuestionCandidate, candidates: list[QuestionCandidate], card_payload: dict) -> QuestionCandidate:
+        previous = target.current_question
+        target.current_question = payload.current_question.strip()
+        try:
+            validate_candidate(target, card_payload, [candidate for candidate in candidates if candidate.id != target.id])
+        except Exception:
+            target.current_question = previous
+            raise
+        target.edit_history.append({
+            "previous_question": previous,
+            "new_question": target.current_question,
+            "actor": actor_role,
+            "timestamp": now_iso(),
+            "reason": payload.edit_reason.strip(),
+        })
+        return target
+
+    return _mutate_question(card_id, question_id, mutate, actor_role)
+
+
+def delete_question_candidate(card_id: str, question_id: str, actor_role: str) -> QuestionCandidate:
+    def mutate(target: QuestionCandidate, _candidates: list[QuestionCandidate], _card_payload: dict) -> QuestionCandidate:
+        target.status = QuestionCandidateStatus.DELETED
+        target.edit_history.append({
+            "action": "DELETE",
+            "actor": actor_role,
+            "timestamp": now_iso(),
+            "reason": "질문 후보 삭제",
+        })
+        return target
+
+    return _mutate_question(card_id, question_id, mutate, actor_role)
+
+
+def select_question_candidate(card_id: str, question_id: str, selected: bool, actor_role: str) -> QuestionCandidate:
+    if actor_role != "LEAD":
+        raise PermissionError("질문 후보 선택 권한이 없습니다")
+    with connect() as connection:
+        initialize_schema(connection)
+        row = connection.execute("SELECT * FROM handoff_cards WHERE id = ?", (card_id,)).fetchone()
+        if row is None:
+            raise KeyError(card_id)
+        card = _card_from_row(row)
+        if card.status != HandoffStatus.READY:
+            raise HandoffStateError("READY 상태의 핸드오프 카드만 질문 후보를 선택할 수 있습니다", card)
+        candidates = _question_candidates(card.payload)
+        target = next((candidate for candidate in candidates if candidate.id == question_id), None)
+        if target is None:
+            raise KeyError(question_id)
+        if target.status == QuestionCandidateStatus.DELETED:
+            raise HandoffStateError("삭제된 질문 후보는 선택할 수 없습니다", card)
+        target.status = QuestionCandidateStatus.SELECTED if selected else QuestionCandidateStatus.CANDIDATE
+        payload = dict(card.payload)
+        payload["interview_questions"] = [candidate.model_dump(mode="json") for candidate in candidates]
+        result = connection.execute(
+            "UPDATE handoff_cards SET payload_json = ?, updated_at = ? WHERE id = ? AND status = 'READY'",
+            (json.dumps(payload, ensure_ascii=False), now_iso(), card_id),
+        )
+        if result.rowcount != 1:
+            raise HandoffStateError("핸드오프 카드가 변경되어 질문 선택 상태를 저장하지 못했습니다", card)
+        connection.commit()
+    return target

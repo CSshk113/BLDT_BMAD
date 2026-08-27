@@ -5,6 +5,7 @@ from backend.app.api.criteria import router as criteria_router
 from backend.app.api.applications import router as applications_router
 from backend.app.api.mapping import router as mapping_router
 from backend.app.api.handoff import router as handoff_router
+from backend.app.api.questions import router as questions_router
 from backend.app.services.criteria import reject_official_action
 
 
@@ -20,6 +21,7 @@ app.include_router(criteria_router)
 app.include_router(applications_router)
 app.include_router(mapping_router)
 app.include_router(handoff_router)
+app.include_router(questions_router)
 
 
 @app.get("/health")

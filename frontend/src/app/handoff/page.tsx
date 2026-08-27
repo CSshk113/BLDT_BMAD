@@ -1,11 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import React from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { generateHandoffCard, type HandoffCard } from "@/lib/handoff-api";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  deleteQuestionCandidate,
+  editQuestionCandidate,
+  generateHandoffCard,
+  generateQuestionCandidates,
+  loadQuestionCandidates,
+  selectQuestionCandidate,
+  type HandoffCard,
+  type QuestionCandidate,
+} from "@/lib/handoff-api";
 
 type Judgment = {
   status?: string;
@@ -26,6 +37,13 @@ export default function HandoffPage() {
   const [applicationId, setApplicationId] = useState("APPS-2");
   const [versionId, setVersionId] = useState("cv-b2b-sales-v4");
   const [card, setCard] = useState<HandoffCard | null>(null);
+  const [candidates, setCandidates] = useState<QuestionCandidate[]>([]);
+  const [role, setRole] = useState<"LEAD" | "HR" | "HM">("LEAD");
+  const [selectedOnly, setSelectedOnly] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const [editReason, setEditReason] = useState("");
+  const [questionBusy, setQuestionBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -45,10 +63,90 @@ export default function HandoffPage() {
 
     setError("");
     try {
-      setCard((await generateHandoffCard(nextVersionId, nextApplicationId)).card);
+      const nextCard = (await generateHandoffCard(nextVersionId, nextApplicationId)).card;
+      setCard(nextCard);
+      setCandidates((await loadQuestionCandidates(nextCard.id, role)).candidates);
     } catch {
       setCard(null);
+      setCandidates([]);
       setError("핸드오프 생성 조건을 확인하세요. 승인 기준·완료 매핑·원문·HR/HM 판단 로그가 모두 필요합니다.");
+    }
+  };
+
+  const refreshQuestions = async (cardId: string, onlySelected = selectedOnly) => {
+    setCandidates((await loadQuestionCandidates(cardId, role, onlySelected)).candidates);
+  };
+
+  const changeRole = (nextRole: "LEAD" | "HR" | "HM") => {
+    setRole(nextRole);
+    setEditingId(null);
+    setEditReason("");
+  };
+
+  const createQuestions = async () => {
+    if (!card) return;
+    setQuestionBusy(true);
+    setError("");
+    try {
+      await generateQuestionCandidates(card.id, role);
+      await refreshQuestions(card.id);
+    } catch {
+      setError("질문 후보를 만들 수 없습니다. 승인된 READY 카드와 서버 LLM 설정을 확인한 뒤 다시 시도하세요.");
+    } finally {
+      setQuestionBusy(false);
+    }
+  };
+
+  const beginEdit = (candidate: QuestionCandidate) => {
+    setEditingId(candidate.id);
+    setEditText(candidate.current_question);
+    setEditReason("");
+  };
+
+  const saveEdit = async () => {
+    if (!card || !editingId || role === "LEAD") return;
+    if (!editText.trim() || !editReason.trim()) {
+      setError("수정 질문과 변경 사유를 입력하세요.");
+      return;
+    }
+    setQuestionBusy(true);
+    try {
+      await editQuestionCandidate(card.id, editingId, editText, editReason, role);
+      setError("");
+      setEditingId(null);
+      await refreshQuestions(card.id);
+    } catch {
+      setError("질문 수정이 거부되었습니다. 구체성·근거 연결·공정성 규칙을 확인하세요.");
+    } finally {
+      setQuestionBusy(false);
+    }
+  };
+
+  const removeCandidate = async (questionId: string) => {
+    if (!card || role === "LEAD") return;
+    setQuestionBusy(true);
+    try {
+      await deleteQuestionCandidate(card.id, questionId, role);
+      setError("");
+      await refreshQuestions(card.id);
+    } catch {
+      setError("질문 후보를 삭제할 수 없습니다.");
+    } finally {
+      setQuestionBusy(false);
+    }
+  };
+
+  const toggleSelection = async (candidate: QuestionCandidate) => {
+    if (!card || role !== "LEAD") return;
+    setQuestionBusy(true);
+    try {
+      await selectQuestionCandidate(card.id, candidate.id, candidate.status !== "SELECTED", role);
+      setError("");
+      await refreshQuestions(card.id);
+    } catch {
+      setError("질문 선택 상태를 변경할 수 없습니다.");
+    } finally {
+      setQuestionBusy(false);
     }
   };
 
@@ -59,9 +157,9 @@ export default function HandoffPage() {
   return (
     <main className="mx-auto grid max-w-7xl gap-6 p-6">
       <header>
-        <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground">HANDOFF CARD · STORY 3.2</p>
+        <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground">HANDOFF CARD · STORY 3.3</p>
         <h1 className="text-3xl font-semibold tracking-tight">현업 핸드오프 카드</h1>
-        <p className="mt-2 text-sm text-muted-foreground">양쪽 판단과 원문 근거를 한 장의 JSON 카드로 고정합니다.</p>
+        <p className="mt-2 text-sm text-muted-foreground">양쪽 판단과 원문 근거에서 인터뷰 질문 후보까지 한 장의 JSON 카드로 연결합니다.</p>
       </header>
 
       <Card>
@@ -69,16 +167,24 @@ export default function HandoffPage() {
           <CardTitle>카드 생성</CardTitle>
           <CardDescription>승인된 기준과 처리 완료된 지원서만 공식 카드로 만들 수 있습니다.</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
-          <label className="grid gap-2 text-sm font-medium">
+          <CardContent className="grid gap-4 md:grid-cols-[1fr_1fr_auto_auto] md:items-end">
+            <label className="grid gap-2 text-sm font-medium">
             지원서 ID
             <input className="h-10 rounded-md border bg-background px-3" value={applicationId} onChange={(event) => setApplicationId(event.target.value)} />
           </label>
           <label className="grid gap-2 text-sm font-medium">
             기준 버전 ID
             <input className="h-10 rounded-md border bg-background px-3" value={versionId} onChange={(event) => setVersionId(event.target.value)} />
-          </label>
-          <Button type="button" onClick={create}>핸드오프 생성</Button>
+            </label>
+            <label className="grid gap-2 text-sm font-medium">
+              현재 역할
+              <select className="h-10 rounded-md border bg-background px-3" value={role} onChange={(event) => changeRole(event.target.value as "LEAD" | "HR" | "HM")}>
+                <option value="LEAD">LEAD · 선택</option>
+                <option value="HR">HR · 수정/삭제</option>
+                <option value="HM">HM · 수정/삭제</option>
+              </select>
+            </label>
+            <Button type="button" onClick={create}>핸드오프 생성</Button>
         </CardContent>
       </Card>
 
@@ -148,7 +254,60 @@ export default function HandoffPage() {
             </CardContent>
           </Card>
 
-          <p className="text-xs text-muted-foreground">질문 후보와 면접 결과는 다음 스토리에서 이 카드의 JSON payload에 확장됩니다.</p>
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle>인터뷰 질문 후보</CardTitle>
+                  <CardDescription>카드의 근거와 관련 영업 question-bank 실제 사용 이력으로 만든 후보입니다. AI가 최종 결정을 내리지 않습니다.</CardDescription>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={selectedOnly} onChange={async (event) => { const value = event.target.checked; setSelectedOnly(value); if (card) await refreshQuestions(card.id, value); }} />
+                    선택된 질문만
+                  </label>
+                  {role === "LEAD" && <Button type="button" onClick={createQuestions} disabled={questionBusy}>{questionBusy ? "생성 중…" : "질문 후보 생성"}</Button>}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              {candidates.length === 0 && <p className="text-sm text-muted-foreground">표시할 질문 후보가 없습니다. 생성 버튼으로 후보를 준비하세요.</p>}
+              {candidates.map((candidate) => (
+                <div className="rounded-md border p-4" key={candidate.id}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={candidate.status === "SELECTED" ? "default" : "outline"}>{candidate.status}</Badge>
+                      <Badge variant="secondary">{candidate.question_type}</Badge>
+                      <span className="text-xs text-muted-foreground">생성 {new Date(candidate.created_at).toLocaleString("ko-KR")}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      {role === "LEAD" && <Button type="button" variant={candidate.status === "SELECTED" ? "default" : "outline"} onClick={() => toggleSelection(candidate)} disabled={questionBusy}>{candidate.status === "SELECTED" ? "선택 해제" : "인터뷰에 선택"}</Button>}
+                      {role !== "LEAD" && <><Button type="button" variant="outline" onClick={() => beginEdit(candidate)} disabled={questionBusy}>수정</Button><Button type="button" variant="destructive" onClick={() => removeCandidate(candidate.id)} disabled={questionBusy}>삭제</Button></>}
+                    </div>
+                  </div>
+                  {editingId === candidate.id ? (
+                    <div className="mt-3 grid gap-2">
+                      <Textarea value={editText} onChange={(event) => setEditText(event.target.value)} aria-label="수정할 질문" />
+                      <Textarea value={editReason} onChange={(event) => setEditReason(event.target.value)} placeholder="변경 사유" aria-label="변경 사유" />
+                      <div className="flex gap-2"><Button type="button" onClick={saveEdit} disabled={questionBusy}>수정 저장</Button><Button type="button" variant="ghost" onClick={() => setEditingId(null)}>취소</Button></div>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="mt-3 font-medium">{candidate.current_question}</p>
+                      {candidate.original_question !== candidate.current_question && <p className="mt-2 text-xs text-muted-foreground">원질문: {candidate.original_question}</p>}
+                    </>
+                  )}
+                  <div className="mt-3 grid gap-1 text-xs text-muted-foreground md:grid-cols-3">
+                    <span>질문 이유: {candidate.reason}</span>
+                    <span>연결 기준: {candidate.criterion_item_ids.join(", ")}</span>
+                    <span>참조 근거: {candidate.evidence_ids.map((evidenceId) => { const evidence = card.payload.evidence.find((item) => item.id === evidenceId); return <span key={evidenceId} className="mr-2 inline-block">{evidence ? `${evidence.citation} (${evidence.location})` : evidenceId}</span>; })}</span>
+                  </div>
+                  {candidate.edit_history.length > 0 && <p className="mt-2 text-xs text-muted-foreground">수정 이력 {candidate.edit_history.length}건 · 마지막 사유: {candidate.edit_history.at(-1)?.reason}</p>}
+                </div>
+              ))}
+              {candidates.some((candidate) => candidate.status === "SELECTED") && <Alert><AlertTitle>인터뷰 사용 목록</AlertTitle><AlertDescription>{candidates.filter((candidate) => candidate.status === "SELECTED").map((candidate) => candidate.current_question).join(" · ")}</AlertDescription></Alert>}
+            </CardContent>
+          </Card>
         </section>
       )}
     </main>
