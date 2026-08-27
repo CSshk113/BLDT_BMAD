@@ -44,4 +44,48 @@ describe("calibration page", () => {
 
     await waitFor(() => expect(screen.getByText("서버에서 받은 기준")).toBeInTheDocument());
   });
+
+  it("shows both reviewer opinions and keeps the other role read-only", async () => {
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/conflicts")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            criteria_version_id: "cv-b2b-sales-v4",
+            application_id: "APPS-2",
+            open_conflict_count: 1,
+            rows: [{
+              criterion_item_id: "server-item",
+              criterion_text: "서버에서 받은 기준",
+              requirement_type: "필수",
+              conflict_status: "OPEN",
+              differences: ["상태"],
+              hr_review: { id: "hr-1", criteria_version_id: "cv-b2b-sales-v4", application_id: "APPS-2", criterion_item_id: "server-item", reviewer_role: "HR", status: "FULFILLED", reason_text: "HR 근거", source_location: "p.1", created_at: "2026-08-27T00:00:00Z", updated_at: "2026-08-27T00:00:00Z" },
+              hm_review: { id: "hm-1", criteria_version_id: "cv-b2b-sales-v4", application_id: "APPS-2", criterion_item_id: "server-item", reviewer_role: "HM", status: "UNVERIFIABLE", reason_text: "HM 근거", source_location: "p.1", created_at: "2026-08-27T00:00:00Z", updated_at: "2026-08-27T00:00:00Z" },
+            }],
+          }),
+        } as Response);
+      }
+      const payload = url.endsWith("/preview")
+        ? { mappings: [{ mapping_status: "COMPLETED" }] }
+        : {
+            id: "cv-b2b-sales-v4",
+            position_name: "B2B 영업 매니저 5년 이상 ver.4",
+            status: "DRAFT",
+            updated_at: "2026-08-27T00:00:00Z",
+            items: [{ id: "server-item", criterion_text: "서버에서 받은 기준", requirement_type: "필수" }],
+          };
+      return Promise.resolve({ ok: true, json: async () => payload } as Response);
+    }));
+
+    render(<CalibrationPage />);
+
+    expect(await screen.findByText("열린 충돌 1건")).toBeInTheDocument();
+    expect(screen.getAllByText("HR 근거").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("HM 근거").length).toBeGreaterThan(0);
+    expect(screen.getByText("차이: 상태")).toBeInTheDocument();
+    expect(screen.getByText("다른 검토자의 기록은 읽기 전용으로 표시됩니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "독립 검토 저장" })).toBeInTheDocument();
+  });
 });

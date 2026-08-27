@@ -1,8 +1,8 @@
 """Criteria calibration API."""
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, status
 
-from backend.app.models.criteria import CriteriaVersionUpdate
+from backend.app.models.criteria import CriteriaVersionUpdate, ReviewMatrix, ReviewSubmission, ReviewerRole
 from backend.app.services import criteria
 
 
@@ -47,3 +47,27 @@ def get_preview(version_id: str):
     except KeyError as error:
         raise HTTPException(status_code=404, detail="기준 버전을 찾을 수 없습니다") from error
 
+
+@router.get("/{version_id}/conflicts", response_model=ReviewMatrix)
+def get_conflicts(version_id: str, application_id: str = "APPS-2") -> ReviewMatrix:
+    try:
+        return criteria.get_review_matrix(version_id, application_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="기준 버전을 찾을 수 없습니다") from error
+
+
+@router.post("/{version_id}/reviews", response_model=ReviewMatrix)
+def save_reviews(
+    version_id: str,
+    payload: ReviewSubmission,
+    x_demo_role: ReviewerRole | None = Header(default=None),
+):
+    actor_role = x_demo_role or payload.reviewer_role
+    try:
+        return criteria.save_reviews(version_id, payload, actor_role)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="기준 버전을 찾을 수 없습니다") from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error

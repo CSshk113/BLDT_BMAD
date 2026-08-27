@@ -10,9 +10,17 @@ from backend.app.models.criteria import (
     CriteriaVersion,
     CriteriaVersionStatus,
     DraftPreview,
+    ConflictRow,
+    ConflictStatus,
     MappingStatus,
     OfficialActionRejected,
     PreviewMapping,
+    ReviewInput,
+    ReviewLog,
+    ReviewMatrix,
+    ReviewSubmission,
+    ReviewStatus,
+    ReviewerRole,
 )
 
 
@@ -21,6 +29,15 @@ DEFAULT_ITEMS = (
     ("콜드 아웃바운드 영업 경험", "필수"),
     ("B2B 세일즈 파이프라인 운영 경험", "필수"),
     ("CRM 또는 세일즈 데이터 기반 성과 관리", "우대"),
+)
+DEMO_APPLICATION_ID = "APPS-2"
+
+DEMO_REVIEWS = (
+    ("HR", 1, "FULFILLED", "신규 고객 발굴 경험이 명시되어 있습니다.", "p.2 · 경력기술서"),
+    ("HM", 1, "PARTIALLY_FULFILLED", "콜드 아웃바운드 방식과 기간을 추가 확인해야 합니다.", "p.2 · 경력기술서"),
+    ("HR", 2, "UNVERIFIABLE", "파이프라인 운영 도구와 담당 범위가 확인되지 않습니다.", "p.3 · 프로젝트"),
+    ("HR", 3, "PARTIALLY_FULFILLED", "성과 수치는 있으나 CRM 사용 근거가 부족합니다.", "p.3 · 프로젝트"),
+    ("HM", 3, "UNFULFILLED", "CRM 또는 세일즈 데이터 운영 경험이 원문에 없습니다.", "p.3 · 프로젝트"),
 )
 
 
@@ -33,6 +50,8 @@ def ensure_seed_data() -> None:
         initialize_schema(connection)
         existing = connection.execute("SELECT id FROM criteria_versions LIMIT 1").fetchone()
         if existing:
+            _ensure_demo_reviews(connection, existing["id"])
+            connection.commit()
             return
         timestamp = now_iso()
         version_id = "cv-b2b-sales-v4"
@@ -62,7 +81,46 @@ def ensure_seed_data() -> None:
                 "원문 확인 가능",
             ),
         )
+        _ensure_demo_reviews(connection, version_id)
         connection.commit()
+
+
+def _ensure_demo_reviews(connection, version_id: str) -> None:
+    existing = connection.execute(
+        "SELECT COUNT(*) AS count FROM review_logs WHERE criteria_version_id = ?",
+        (version_id,),
+    ).fetchone()["count"]
+    if existing:
+        return
+    items = connection.execute(
+        "SELECT id FROM criteria_items WHERE criteria_version_id = ? ORDER BY sort_order",
+        (version_id,),
+    ).fetchall()
+    for reviewer_role, item_number, review_status, reason_text, source_location in DEMO_REVIEWS:
+        if item_number > len(items):
+            continue
+        timestamp = now_iso()
+        item_id = items[item_number - 1]["id"]
+        connection.execute(
+            """
+            INSERT INTO review_logs
+            (id, criteria_version_id, application_id, criterion_item_id, reviewer_role,
+             review_status, reason_text, source_location, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"review-demo-{version_id}-{reviewer_role.lower()}-{item_number}",
+                version_id,
+                DEMO_APPLICATION_ID,
+                item_id,
+                reviewer_role,
+                review_status,
+                reason_text,
+                source_location,
+                timestamp,
+                timestamp,
+            ),
+        )
 
 
 def _row_to_version(connection, row) -> CriteriaVersion:
@@ -167,6 +225,131 @@ def get_preview(version_id: str) -> DraftPreview:
         is_preview=version.status == CriteriaVersionStatus.DRAFT,
         mappings=[PreviewMapping(**dict(row)) for row in rows],
     )
+
+
+def _row_to_review(row) -> ReviewLog:
+    return ReviewLog(
+        id=row["id"],
+        criteria_version_id=row["criteria_version_id"],
+        application_id=row["application_id"],
+        criterion_item_id=row["criterion_item_id"],
+        reviewer_role=row["reviewer_role"],
+        status=row["review_status"],
+        reason_text=row["reason_text"],
+        source_location=row["source_location"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def get_review_matrix(version_id: str, application_id: str = DEMO_APPLICATION_ID) -> ReviewMatrix:
+    version = get_version(version_id)
+    ensure_seed_data()
+    with connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT * FROM review_logs
+            WHERE criteria_version_id = ? AND application_id = ?
+            ORDER BY updated_at, id
+            """,
+            (version_id, application_id),
+        ).fetchall()
+    by_item: dict[str, dict[ReviewerRole, ReviewLog]] = {}
+    for row in rows:
+        review = _row_to_review(row)
+        by_item.setdefault(review.criterion_item_id, {})[review.reviewer_role] = review
+
+    matrix_rows: list[ConflictRow] = []
+    for item in version.items:
+        reviews = by_item.get(item.id, {})
+        hr_review = reviews.get(ReviewerRole.HR)
+        hm_review = reviews.get(ReviewerRole.HM)
+        differences: list[str] = []
+        if hr_review and hm_review:
+            if hr_review.status != hm_review.status:
+                differences.append("상태")
+            if hr_review.source_location != hm_review.source_location:
+                differences.append("원문 위치")
+            if hr_review.reason_text != hm_review.reason_text:
+                differences.append("판단 사유")
+        conflict_status = (
+            ConflictStatus.OPEN
+            if differences
+            else ConflictStatus.NONE
+            if hr_review and hm_review
+            else ConflictStatus.PENDING
+        )
+        matrix_rows.append(
+            ConflictRow(
+                criterion_item_id=item.id,
+                criterion_text=item.criterion_text,
+                requirement_type=item.requirement_type,
+                conflict_status=conflict_status,
+                differences=differences,
+                hr_review=hr_review,
+                hm_review=hm_review,
+            )
+        )
+    return ReviewMatrix(
+        criteria_version_id=version.id,
+        application_id=application_id,
+        rows=matrix_rows,
+        open_conflict_count=sum(row.conflict_status == ConflictStatus.OPEN for row in matrix_rows),
+    )
+
+
+def save_reviews(version_id: str, submission: ReviewSubmission, actor_role: ReviewerRole) -> ReviewMatrix:
+    version = get_version(version_id)
+    if version.status != CriteriaVersionStatus.DRAFT:
+        raise ValueError("승인된 기준에는 교정 검토를 추가할 수 없습니다")
+    if actor_role != submission.reviewer_role:
+        raise PermissionError("다른 검토자의 ReviewLog는 수정할 수 없습니다")
+    item_ids = {item.id for item in version.items}
+    if any(review.criterion_item_id not in item_ids for review in submission.reviews):
+        raise ValueError("기준 버전에 속하지 않은 항목입니다")
+    timestamp = now_iso()
+    with connect() as connection:
+        for review in submission.reviews:
+            existing = connection.execute(
+                """
+                SELECT id, created_at FROM review_logs
+                WHERE criteria_version_id = ? AND application_id = ?
+                  AND criterion_item_id = ? AND reviewer_role = ?
+                """,
+                (version_id, submission.application_id, review.criterion_item_id, submission.reviewer_role),
+            ).fetchone()
+            if existing:
+                connection.execute(
+                    """
+                    UPDATE review_logs
+                    SET review_status = ?, reason_text = ?, source_location = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (review.status, review.reason_text, review.source_location, timestamp, existing["id"]),
+                )
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO review_logs
+                    (id, criteria_version_id, application_id, criterion_item_id, reviewer_role,
+                     review_status, reason_text, source_location, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        f"review-{uuid.uuid4().hex[:12]}",
+                        version_id,
+                        submission.application_id,
+                        review.criterion_item_id,
+                        submission.reviewer_role,
+                        review.status,
+                        review.reason_text,
+                        review.source_location,
+                        timestamp,
+                        timestamp,
+                    ),
+                )
+        connection.commit()
+    return get_review_matrix(version_id, submission.application_id)
 
 
 def reject_official_action(version_id: str) -> OfficialActionRejected | None:

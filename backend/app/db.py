@@ -44,7 +44,19 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             evidence_status TEXT NOT NULL,
             mapping_status TEXT NOT NULL CHECK(mapping_status IN ('RECEIVED', 'COMPLETED', 'INVALIDATED'))
         );
+        CREATE TABLE IF NOT EXISTS review_logs (
+            id TEXT PRIMARY KEY,
+            criteria_version_id TEXT NOT NULL REFERENCES criteria_versions(id),
+            application_id TEXT NOT NULL,
+            criterion_item_id TEXT NOT NULL REFERENCES criteria_items(id),
+            reviewer_role TEXT NOT NULL CHECK(reviewer_role IN ('HR', 'HM')),
+            review_status TEXT NOT NULL CHECK(review_status IN ('FULFILLED', 'PARTIALLY_FULFILLED', 'UNFULFILLED', 'UNVERIFIABLE')),
+            reason_text TEXT NOT NULL,
+            source_location TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(criteria_version_id, application_id, criterion_item_id, reviewer_role)
+        );
         """
     )
     connection.commit()
-
