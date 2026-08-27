@@ -78,6 +78,18 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             updated_at TEXT NOT NULL,
             UNIQUE(criteria_version_id, application_id, reviewer_role)
         );
+        CREATE TABLE IF NOT EXISTS handoff_cards (
+            id TEXT PRIMARY KEY,
+            application_id TEXT NOT NULL REFERENCES applications(id),
+            criteria_version_id TEXT NOT NULL REFERENCES criteria_versions(id),
+            status TEXT NOT NULL CHECK(status IN ('PROCESSING', 'READY', 'FAILED')),
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            created_by TEXT NOT NULL,
+            failure_reason TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(application_id, criteria_version_id)
+        );
         CREATE TABLE IF NOT EXISTS conflict_resolutions (
             id TEXT PRIMARY KEY,
             criteria_version_id TEXT NOT NULL REFERENCES criteria_versions(id),

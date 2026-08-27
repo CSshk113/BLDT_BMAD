@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.app.api.criteria import router as criteria_router
 from backend.app.api.applications import router as applications_router
 from backend.app.api.mapping import router as mapping_router
+from backend.app.api.handoff import router as handoff_router
 from backend.app.services.criteria import reject_official_action
 
 
@@ -18,6 +19,7 @@ app.add_middleware(
 app.include_router(criteria_router)
 app.include_router(applications_router)
 app.include_router(mapping_router)
+app.include_router(handoff_router)
 
 
 @app.get("/health")
@@ -25,8 +27,8 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/api/handoff/generate")
-def generate_handoff(criteria_version_id: str):
+@app.post("/api/handoff/unlock")
+def unlock_handoff(criteria_version_id: str):
     try:
         rejection = reject_official_action(criteria_version_id)
     except KeyError as error:
