@@ -69,6 +69,109 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             resolution_reason TEXT NOT NULL,
             UNIQUE(criteria_version_id, application_id, criterion_item_id)
         );
+
+        CREATE TABLE IF NOT EXISTS applications (
+            id TEXT PRIMARY KEY,
+            candidate_token TEXT NOT NULL,
+            position_name TEXT NOT NULL,
+            criteria_version_id TEXT NOT NULL REFERENCES criteria_versions(id),
+            source_type TEXT NOT NULL CHECK(source_type IN ('UPLOAD', 'SAMPLE', 'LEDGER_ONLY')),
+            ledger_metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS processing_runs (
+            id TEXT PRIMARY KEY,
+            application_id TEXT NOT NULL REFERENCES applications(id),
+            criteria_version_id TEXT NOT NULL REFERENCES criteria_versions(id),
+            status TEXT NOT NULL CHECK(status IN ('RECEIVED', 'PARSING', 'MAPPING', 'COMPLETED', 'FAILED')),
+            current_step TEXT NOT NULL,
+            parser_model TEXT NOT NULL,
+            received_at TEXT NOT NULL,
+            parsing_started_at TEXT,
+            mapping_started_at TEXT,
+            completed_at TEXT,
+            failed_at TEXT,
+            failure_step TEXT,
+            failure_reason TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS processing_run_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            processing_run_id TEXT NOT NULL REFERENCES processing_runs(id),
+            status TEXT NOT NULL CHECK(status IN ('RECEIVED', 'PARSING', 'MAPPING', 'COMPLETED', 'FAILED')),
+            step TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            detail TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS application_artifacts (
+            id TEXT PRIMARY KEY,
+            application_id TEXT NOT NULL REFERENCES applications(id),
+            processing_run_id TEXT REFERENCES processing_runs(id),
+            artifact_type TEXT NOT NULL CHECK(artifact_type IN ('ORIGINAL_PDF', 'LLAMAPARSE_MARKDOWN', 'NORMALIZED_MARKDOWN')),
+            storage_path TEXT NOT NULL,
+            original_filename TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            is_current INTEGER NOT NULL DEFAULT 0 CHECK(is_current IN (0, 1)),
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_processing_runs_application
+            ON processing_runs(application_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_application_artifacts_application
+            ON application_artifacts(application_id, artifact_type, created_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_one_current_artifact
+            ON application_artifacts(application_id, artifact_type) WHERE is_current = 1;
+
+        CREATE TRIGGER IF NOT EXISTS validate_processing_run_application
+        BEFORE INSERT ON processing_runs
+        WHEN NOT EXISTS (
+            SELECT 1 FROM applications
+            WHERE applications.id = NEW.application_id
+              AND applications.criteria_version_id = NEW.criteria_version_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'processing run application/version mismatch');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS validate_processing_run_application_update
+        BEFORE UPDATE OF application_id, criteria_version_id ON processing_runs
+        WHEN NOT EXISTS (
+            SELECT 1 FROM applications
+            WHERE applications.id = NEW.application_id
+              AND applications.criteria_version_id = NEW.criteria_version_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'processing run application/version mismatch');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS validate_application_artifact_link
+        BEFORE INSERT ON application_artifacts
+        WHEN (NEW.artifact_type <> 'ORIGINAL_PDF' AND NEW.processing_run_id IS NULL)
+          OR (NEW.processing_run_id IS NOT NULL AND NOT EXISTS (
+              SELECT 1 FROM processing_runs
+              WHERE processing_runs.id = NEW.processing_run_id
+                AND processing_runs.application_id = NEW.application_id
+          ))
+        BEGIN
+            SELECT RAISE(ABORT, 'application artifact/run mismatch');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS validate_application_artifact_link_update
+        BEFORE UPDATE OF application_id, processing_run_id, artifact_type ON application_artifacts
+        WHEN (NEW.artifact_type <> 'ORIGINAL_PDF' AND NEW.processing_run_id IS NULL)
+          OR (NEW.processing_run_id IS NOT NULL AND NOT EXISTS (
+              SELECT 1 FROM processing_runs
+              WHERE processing_runs.id = NEW.processing_run_id
+                AND processing_runs.application_id = NEW.application_id
+          ))
+        BEGIN
+            SELECT RAISE(ABORT, 'application artifact/run mismatch');
+        END;
         """
     )
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(criteria_versions)").fetchall()}
