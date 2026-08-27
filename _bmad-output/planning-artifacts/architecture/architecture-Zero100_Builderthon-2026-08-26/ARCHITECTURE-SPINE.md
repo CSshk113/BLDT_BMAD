@@ -18,7 +18,7 @@ companions:
 
 ## Design Paradigm
 
-5일 MVP에 맞춘 계층형 모듈러 모놀리스다. PDF 처리와 근거 추출은 순차 파이프라인으로 구성하고, 기준·검토·핸드오프의 핵심 규칙은 서버에서 보장한다.
+5일 MVP에 맞춘 계층형 모듈러 모놀리스다. B2B 영업 매니저 채용을 대상으로 PDF 처리와 근거 추출은 순차 파이프라인으로 구성하고, 기준·검토·핸드오프의 핵심 규칙은 서버에서 보장한다.
 
 ```mermaid
 flowchart LR
@@ -53,9 +53,9 @@ flowchart LR
 
 ### AD-3 — 독립 검토와 충돌 보존
 
-- HR과 직무 담당자의 검토는 별도 `ReviewLog`로 저장한다.
-- 상태·근거의 불일치는 서버 로직으로 `ConflictItem`을 계산한다.
-- AI가 두 의견을 임의로 합치거나 한쪽을 삭제하지 않는다.
+- HR과 HM의 검토는 별도 `ReviewLog`로 저장한다.
+- HR 스크리닝과 HM 서류 심사의 상태·근거 차이는 서버 로직으로 `ConflictItem`을 계산한다.
+- AI가 두 단계의 판단을 임의로 합치거나 한쪽을 삭제하지 않는다.
 
 ### AD-4 — 스플릿 뷰 동기화
 
@@ -74,6 +74,7 @@ flowchart LR
 ### AD-6 — 문서 처리와 모델 설정
 
 - 입력은 PDF로 제한한다.
+- MVP의 기준 버전은 제공된 `B2B 영업 매니저 5년 이상 ver.4` JD의 필수·우대 기준을 구분해 관리한다.
 - 처리 순서는 `PDF → LlamaParse → Markdown Normalizer → gpt-5.6-luna → Location Resolver`다.
 - `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `LLAMA_CLOUD_API_KEY`, `LLAMA_CLOUD_BASE_URL`은 서버 환경변수 또는 `.env`에서만 읽는다.
 - 파싱·매핑 실패는 실패 상태로 저장하며 완료된 결과처럼 노출하지 않는다.
@@ -93,7 +94,7 @@ flowchart LR
 ### AD-9 — API와 권한 경계
 
 - 브라우저는 FastAPI를 통해서만 데이터와 PDF에 접근한다.
-- HR은 기준 교정·승인, TECH는 직무 검토, LEAD는 핸드오프·질문 선택·면접 검증·최종 결정을 담당한다.
+- HR은 기준 교정·승인과 1차 스크리닝, HM은 직무 서류 검토, 현업 리더는 핸드오프·질문 선택·면접 검증·최종 결정을 담당한다.
 - 다른 검토자의 로그를 수정할 수 없으며, 기준 승인·핸드오프·결정 기록은 하나의 트랜잭션으로 저장한다.
 - API 키와 서버 파일 경로는 브라우저에 노출하지 않는다.
 
@@ -150,7 +151,7 @@ flowchart LR
 
 1. 승인된 기준 버전과 처리 상태
 2. PDF 원문 또는 Markdown fallback과 기준별 인용구
-3. HR·TECH 의견 차이와 각자의 근거
+3. HR·HM 판단 차이와 각자의 근거
 4. 핸드오프 카드와 인터뷰 질문 후보의 수정·삭제·선택
 
 ## Stack
@@ -169,7 +170,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     actor HR
-    actor TECH
+    actor HM
     actor LEAD
     participant UI as Next.js
     participant API as FastAPI
@@ -177,7 +178,7 @@ sequenceDiagram
     participant PIPE as Document Pipeline
 
     HR->>UI: 기준 작성 및 표본 검토
-    TECH->>UI: 독립 표본 검토
+    HM->>UI: 독립 표본 검토
     UI->>API: 검토 결과 저장
     API->>DB: ConflictItem 계산
     HR->>UI: 기준 승인
@@ -189,7 +190,7 @@ sequenceDiagram
     API->>PIPE: PDF → Markdown → 근거 매핑
     PIPE->>DB: 처리 상태·인용구 저장
 
-    TECH->>UI: 스플릿 뷰 검토 및 판단 사유 작성
+    HM->>UI: 스플릿 뷰 검토 및 판단 사유 작성
     UI->>API: 핸드오프 생성
     API->>DB: 카드·질문 후보 저장
     LEAD->>UI: 질문 후보 수정·삭제·선택
@@ -261,7 +262,7 @@ BLDT_BMAD/
 ## Deferred
 
 1. **D-01 — 정확한 인터뷰 질문 후보 개수**: 정확한 개수는 추후 결정한다.
-2. **D-02 — 발표용 데이터세트**: PDF 입력은 고정하되, 발표용 파일 수와 구성은 추후 결정한다.
+2. **D-02 — 발표용 데이터세트**: 178건 원장과 20건 이력서 표본은 확인했으며, 발표에 사용할 정확한 표본과 구성은 추후 결정한다.
 3. **D-03 — 베이스라인 비교(PB-02)**: 현재 MVP 범위에서 다루지 않는다.
 4. **D-04 — 문제 정의 카드의 최종 숫자·출처**: 제출 전에 확정한다.
 5. **D-05 — 레포·배포 링크**: 제출 전에 확정한다.
