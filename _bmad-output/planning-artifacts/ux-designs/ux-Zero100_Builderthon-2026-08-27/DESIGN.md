@@ -1,7 +1,7 @@
 ---
 name: "Evidence Handoff"
 description: "Code.Presso의 신뢰감 있는 블루 언어를 근거 중심 채용 검토에 맞게 확장한 디자인 시스템."
-status: draft
+status: final
 created: 2026-08-27
 updated: 2026-08-27
 sources:
@@ -215,7 +215,7 @@ Evidence Handoff는 후보자를 점수화하는 대시보드가 아니라, 사�
 - **Ink** `{colors.ink-primary}`와 `{colors.ink-secondary}`가 본문·보조 본문을 담당한다. `{colors.ink-muted}`는 큰 텍스트나 비필수 메타에만 사용한다.
 - **Success / Warning / Danger**는 승인·주의·실패 상태에만 사용한다. `status-badge`는 success `{colors.success}`/`{colors.success-subtle}` 4.54:1, warning `{colors.warning}`/`{colors.warning-subtle}` 5.41:1, danger `{colors.danger}`/`{colors.danger-subtle}` 5.13:1의 전경·배경 쌍을 사용한다. 반드시 아이콘과 텍스트 레이블을 함께 둔다. 검토 상태 `충족/부분 충족/미충족/확인 불가`는 색만으로 구분하지 않는다.
 - 선택 배경 `{colors.surface-selected}` 위 본문은 `{colors.ink-primary}`를 유지한다. 컬러 배경 위 긴 본문은 두지 않는다.
-- 입력 경계 `{colors.border-input}`는 흰 표면 `{colors.surface-raised}`에서 4.25:1이다. `{colors.border-default}`와 `{colors.border-strong}`은 장식적 분리선에만 쓰고 입력·선택·포커스 같은 load-bearing 경계에는 쓰지 않는다.
+- 입력 경계 `{colors.border-input}`는 흰 표면 `{colors.surface-raised}`에서 4.25:1이다. `{colors.border-default}`는 장식적 분리선에, `{colors.border-strong}`은 패널·오버레이·타임라인 같은 구조 경계에 사용한다. 입력·선택·포커스 같은 load-bearing 경계에는 전용 입력·포커스 토큰을 사용한다.
 
 ## Typography
 

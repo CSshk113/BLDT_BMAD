@@ -1,6 +1,6 @@
 ---
 name: "Evidence Handoff"
-status: draft
+status: final
 created: 2026-08-27
 updated: 2026-08-27
 sources:
@@ -215,11 +215,11 @@ Architecture Spine이 역할·상태·API 게이트의 정본이다. PRD addendu
 
 실패 경로: 충돌이 남아 있으면 `gate-banner`가 승인 버튼 대신 남은 행과 이동 링크를 보여준다. 서버 승인 실패 시 입력을 보존하고 해당 버전 상태를 다시 조회한다.
 
-### UF-2 근거 기반 지원서 검토 — 준호, 직무 담당자
+### UF-2 근거 기반 지원서 검토 — 준호, HM
 
 1. 준호는 완료 상태의 대표 지원서를 선택한다.
 2. `evidence-split-view`에서 왼쪽 원문과 오른쪽 기준별 `evidence-card`를 본다.
-3. Python 기준의 인용구를 선택해 원문 위치와 주변 문맥을 확인한다.
+3. 선택한 B2B 영업 기준의 인용구를 선택해 원문 위치와 주변 문맥을 확인한다.
 4. 좌표가 없는 근거는 `document-viewer`의 스니펫·페이지·문맥 fallback으로 확인한다.
 5. `review-control`에서 상태와 원문 기반 판단 사유를 저장한다.
 6. 이견 비교에서 민지의 판단과 자신의 판단·근거가 분리되어 있음을 확인한다.

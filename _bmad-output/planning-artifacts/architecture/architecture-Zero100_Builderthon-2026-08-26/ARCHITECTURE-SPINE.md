@@ -48,12 +48,15 @@ flowchart LR
 
 - LLM이 반환한 인용구는 LlamaParse가 만든 정규화 Markdown의 원문 부분 문자열이어야 한다.
 - 인용구에는 지원서, 기준 버전, 처리 실행, 페이지 또는 Markdown 위치를 함께 저장한다.
-- PDF 좌표를 확인할 수 없으면 스니펫과 주변 문맥을 보여주는 fallback을 사용한다.
+- 프론트엔드는 `react-highlight-words` 또는 `window.find()`를 이용한 텍스트 검색 하이라이트를 기본 경로로 사용한다.
+- PDF 좌표는 지원 가능한 문서에서만 선택적으로 사용하며, 확인할 수 없으면 스니펫·페이지·주변 문맥 fallback을 사용한다.
 - 원문이 다시 처리되면 기존 인용구를 덮어쓰지 않고 새 결과를 만든다.
 
 ### AD-3 — 독립 검토와 충돌 보존
 
 - HR과 HM의 검토는 별도 `ReviewLog`로 저장한다.
+- 기준 항목(Item) 레벨 상태는 `FULFILLED`, `PARTIALLY_FULFILLED`, `UNFULFILLED`, `UNVERIFIABLE`로 관리하고, 지원서(Document)·전형 단계 레벨의 회사 판정값과 혼합하지 않는다.
+- 지원서(Document)·전형 단계 판정은 HR 스크리닝과 HM 서류 심사의 공식 어휘를 각각 별도 필드로 저장한다. 한 단계의 판정값을 다른 단계의 값으로 재사용하지 않는다.
 - HR 스크리닝과 HM 서류 심사의 상태·근거 차이는 서버 로직으로 `ConflictItem`을 계산한다.
 - AI가 두 단계의 판단을 임의로 합치거나 한쪽을 삭제하지 않는다.
 
@@ -65,9 +68,9 @@ flowchart LR
 
 ### AD-5 — 인터뷰 질문 후보
 
-- 질문 후보는 핸드오프에 연결된 독립 리소스로 저장한다.
-- 각 후보는 기준, 우려 또는 원문 근거와 연결된다.
-- 원래 질문과 현재 수정본을 구분하고, 삭제는 목록에서 숨기는 방식으로 처리한다.
+- MVP에서 질문 후보는 `HandoffCard.payload_json` 안의 배열 객체로 저장한다. 별도의 질문 후보 관계형 테이블은 만들지 않는다.
+- 각 후보 객체는 기준, 우려 또는 원문 근거와 연결되며 원래 질문·현재 수정본·질문 이유·질문 유형·선택 상태를 보존한다.
+- 삭제는 목록에서 숨기는 soft delete로 처리하고, 변경 이력은 payload 안에 보존한다.
 - 검토자가 수정·삭제하고, 현업 리더가 선택한 질문만 최종 핸드오프에 포함한다.
 - 정확한 질문 개수는 고정하지 않고 추후 결정한다.
 
@@ -84,12 +87,14 @@ flowchart LR
 - PDF, LlamaParse Markdown, 정규화 Markdown과 처리 상태를 지원서별로 보존한다.
 - 처리 실행에는 사용 모델, 단계, 실행 시각, 성공·실패 상태와 오류를 기록한다.
 - 재시도 시 이전 부분 결과를 완료 결과로 덮어쓰지 않는다.
+- Draft 기준의 요건 텍스트가 변경되면 해당 기준으로 실행된 기존 매핑 결과를 `INVALIDATED`로 표시하고 수정된 기준으로 재실행을 유도한다.
 
 ### AD-8 — 사람 주도 면접·결정
 
-- 인터뷰 질문 후보와 실제 면접 결과를 별도로 기록한다.
+- 인터뷰 질문 후보, 실제 면접 결과와 최종 결정은 `HandoffCard.payload_json` 안에서 서로 다른 배열·객체로 기록한다.
 - 초기 서류 가설과 면접 검증 결과를 분리해 비교할 수 있어야 한다.
 - 최종 결정은 사람이 직접 입력하며 자동 합격·탈락 결정은 제공하지 않는다.
+- 최종 결정값은 주최측 공식 어휘인 `채용`, `미채용`, `종료`, `인재풀 등록`만 허용한다.
 
 ### AD-9 — API와 권한 경계
 
@@ -104,13 +109,13 @@ flowchart LR
 | :--- | :--- |
 | 기준 버전 | `DRAFT`, `APPROVED`, `ARCHIVED` |
 | 검토 | `FULFILLED`, `PARTIALLY_FULFILLED`, `UNFULFILLED`, `UNVERIFIABLE` |
-| 처리 | `RECEIVED`, `PARSING`, `MAPPING`, `COMPLETED`, `FAILED` |
+| 처리 | `RECEIVED`, `PARSING`, `MAPPING`, `COMPLETED`, `FAILED`, `INVALIDATED` |
 | 충돌 | `OPEN`, `RESOLVED` |
 | 질문 | `CANDIDATE`, `SELECTED`, `DELETED` |
 
 ## Interview Question Candidate Contract
 
-핸드오프 카드 생성 시 질문 후보를 함께 만든다. 정확한 후보 개수는 추후 결정한다.
+핸드오프 카드 생성 시 질문 후보를 함께 만들고 `HandoffCard.payload_json`에 저장한다. 정확한 후보 개수는 추후 결정한다.
 
 | 기능 | 동작 |
 | :--- | :--- |
@@ -133,7 +138,7 @@ flowchart LR
 | 근거 조회 | `GET /api/applications/{application_id}/evidence` |
 | 지원서 검토·충돌 | `POST /api/applications/{application_id}/reviews`, `GET /api/applications/{application_id}/conflicts` |
 | 핸드오프 생성·조회 | `POST /api/handoff/generate`, `GET /api/handoff/{handoff_id}` |
-| 질문 후보 | `GET/PATCH/DELETE /api/questions/{question_id}`, `POST /api/questions/{question_id}/select` |
+| 질문 후보 | `GET/PATCH/DELETE /api/questions/{question_id}`, `POST /api/questions/{question_id}/select` — HandoffCard JSON payload 조작 |
 | 면접·최종 결정 | `POST /api/handoff/{handoff_id}/verifications`, `POST /api/handoff/{handoff_id}/decision` |
 
 공식 핸드오프는 승인된 기준, 처리 완료 지원서, 저장된 근거와 검토 로그가 있을 때만 생성한다. 모든 API는 서버에서 역할과 기준 버전을 확인한다.
@@ -192,8 +197,9 @@ sequenceDiagram
 
     HM->>UI: 스플릿 뷰 검토 및 판단 사유 작성
     UI->>API: 핸드오프 생성
-    API->>DB: 카드·질문 후보 저장
-    LEAD->>UI: 질문 후보 수정·삭제·선택
+    API->>DB: HandoffCard·payload_json 저장
+    HR/HM->>UI: 질문 후보 수정·삭제
+    LEAD->>UI: 질문 후보 선택
     LEAD->>UI: 면접 검증 및 최종 결정 입력
     UI->>API: 결과 저장
 ```
@@ -215,10 +221,6 @@ erDiagram
     CRITERIA_ITEM ||--o{ REVIEW_LOG : evaluates
     REVIEW_LOG ||--o{ CONFLICT_ITEM : contributes
     APPLICATION ||--o{ HANDOFF_CARD : receives
-    HANDOFF_CARD ||--o{ INTERVIEW_QUESTION_CANDIDATE : proposes
-    INTERVIEW_QUESTION_CANDIDATE ||--o{ INTERVIEW_VERIFICATION : verifies
-    HANDOFF_CARD ||--o{ INTERVIEW_VERIFICATION : records
-    HANDOFF_CARD ||--o{ DECISION_RECORD : concludes
 
     POSITION { string id PK; string title }
     CRITERIA_VERSION { string id PK; string position_id FK; string status; datetime created_at }
@@ -228,12 +230,9 @@ erDiagram
     PROCESSING_RUN { string id PK; string application_id FK; string criteria_version_id FK; string status; string model_identifier }
     EVIDENCE_MAPPING { string id PK; string application_id FK; string criteria_item_id FK; string outcome }
     EVIDENCE_CITATION { string id PK; string evidence_mapping_id FK; string snippet_text; int page_number; string location }
-    REVIEW_LOG { string id PK; string application_id FK; string criteria_item_id FK; string reviewer_role; string status; string reason_text }
+    REVIEW_LOG { string id PK; string application_id FK; string criteria_item_id FK; string reviewer_role; string status; string reason_text; json edit_history }
     CONFLICT_ITEM { string id PK; string application_id FK; string criteria_item_id FK; string status; string reason }
-    HANDOFF_CARD { string id PK; string application_id FK; string criteria_version_id FK; string status }
-    INTERVIEW_QUESTION_CANDIDATE { string id PK; string handoff_card_id FK; string criteria_item_id FK; string original_text; string question_text; string selection_status }
-    INTERVIEW_VERIFICATION { string id PK; string handoff_card_id FK; string question_id FK; string initial_hypothesis; string interview_finding }
-    DECISION_RECORD { string id PK; string handoff_card_id FK; string decision_value; string rationale_text }
+    HANDOFF_CARD { string id PK; string application_id FK; string criteria_version_id FK; string status; json payload_json }
 ```
 
 ## Source Tree
