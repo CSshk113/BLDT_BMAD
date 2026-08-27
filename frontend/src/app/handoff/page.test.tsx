@@ -6,6 +6,8 @@ import {
   generateHandoffCard,
   generateQuestionCandidates,
   loadQuestionCandidates,
+  saveFinalDecision,
+  saveInterviewVerification,
   selectQuestionCandidate,
   type HandoffCard,
   type QuestionCandidate,
@@ -17,6 +19,8 @@ vi.mock("@/lib/handoff-api", () => ({
   generateHandoffCard: vi.fn(),
   generateQuestionCandidates: vi.fn(),
   loadQuestionCandidates: vi.fn(),
+  saveFinalDecision: vi.fn(),
+  saveInterviewVerification: vi.fn(),
   selectQuestionCandidate: vi.fn(),
 }));
 
@@ -35,6 +39,8 @@ const card = {
     insufficient_evidence: [],
     interview_questions: [],
     interview_results: [],
+    final_decision: null,
+    audit_timeline: [],
   },
   created_by: "LEAD",
   failure_reason: null,
@@ -69,5 +75,43 @@ describe("handoff question workflow", () => {
     fireEvent.click(screen.getByRole("button", { name: "인터뷰에 선택" }));
 
     await waitFor(() => expect(selectQuestionCandidate).toHaveBeenCalledWith(card.id, candidate.id, true, "LEAD"));
+  });
+
+  it("records a selected question result and a human final decision", async () => {
+    const selectedCandidate = { ...candidate, status: "SELECTED" } as QuestionCandidate;
+    const verification = {
+      id: "verification-1",
+      question_id: selectedCandidate.id,
+      original_question: selectedCandidate.original_question,
+      current_question: selectedCandidate.current_question,
+      criterion_item_ids: selectedCandidate.criterion_item_ids,
+      evidence_ids: selectedCandidate.evidence_ids,
+      initial_hypothesis: selectedCandidate.reason,
+      interview_result: "실제 면접에서 신규 고객 발굴 과정을 확인했습니다.",
+      recorded_by: "LEAD",
+      recorded_at: "2026-08-28T00:00:00Z",
+      edit_history: [],
+    };
+    const verifiedCard = { ...card, payload: { ...card.payload, interview_results: [verification], final_decision: null, audit_timeline: [] } } as HandoffCard;
+    const decidedCard = { ...verifiedCard, payload: { ...verifiedCard.payload, final_decision: { id: "decision-1", decision: "채용", reason: "검증 결과가 충분합니다.", actor: "LEAD", decided_at: "2026-08-28T00:00:00Z", criteria_version_id: card.criteria_version_id, edit_history: [] } } } as HandoffCard;
+    vi.mocked(generateHandoffCard).mockResolvedValue({ card, already_exists: false });
+    vi.mocked(loadQuestionCandidates).mockResolvedValue({ card_id: card.id, candidates: [selectedCandidate], selected_question_ids: [selectedCandidate.id] });
+    vi.mocked(saveInterviewVerification).mockResolvedValue(verifiedCard);
+    vi.mocked(saveFinalDecision).mockResolvedValue(decidedCard);
+
+    render(<HandoffPage />);
+    fireEvent.click(screen.getByRole("button", { name: "핸드오프 생성" }));
+    expect((await screen.findAllByText(selectedCandidate.current_question)).length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText("면접 결과 question-1"), { target: { value: verification.interview_result } });
+    fireEvent.click(screen.getByRole("button", { name: "검증 결과 저장" }));
+    await waitFor(() => expect(saveInterviewVerification).toHaveBeenCalledWith(card.id, selectedCandidate.id, verification.interview_result, undefined));
+    expect(screen.getByDisplayValue(verification.interview_result)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("최종 결정값"), { target: { value: "채용" } });
+    fireEvent.change(screen.getByLabelText("결정 사유"), { target: { value: "검증 결과가 충분합니다." } });
+    fireEvent.click(screen.getByRole("button", { name: "최종 결정 저장" }));
+    await waitFor(() => expect(saveFinalDecision).toHaveBeenCalledWith(card.id, "채용", "검증 결과가 충분합니다.", undefined));
+    expect(await screen.findByText("저장된 결정: 채용")).toBeInTheDocument();
   });
 });

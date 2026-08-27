@@ -2,7 +2,12 @@
 
 from fastapi import APIRouter, Header, HTTPException
 
-from backend.app.models.handoff import HandoffPrerequisiteError, HandoffStateError
+from backend.app.models.handoff import (
+    FinalDecisionInput,
+    HandoffPrerequisiteError,
+    HandoffStateError,
+    InterviewVerificationInput,
+)
 from backend.app.services import criteria, handoff
 
 
@@ -46,3 +51,39 @@ def get_handoff_card(card_id: str, x_demo_role: str = Header(default="LEAD")):
         raise HTTPException(status_code=404, detail="핸드오프 카드를 찾을 수 없습니다") from error
     except HandoffStateError as error:
         raise HTTPException(status_code=409, detail={"code": "HANDOFF_STATE", "message": str(error)}) from error
+
+
+@router.post("/{card_id}/verifications", response_model=handoff.HandoffCard)
+def save_interview_verification(
+    card_id: str,
+    payload: InterviewVerificationInput,
+    x_demo_role: str = Header(default="LEAD"),
+):
+    try:
+        return handoff.save_interview_verification(card_id, payload, x_demo_role)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="핸드오프 카드를 찾을 수 없습니다") from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except HandoffStateError as error:
+        raise HTTPException(status_code=409, detail={"code": "INTERVIEW_VERIFICATION_NOT_READY", "message": str(error)}) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.post("/{card_id}/decision", response_model=handoff.HandoffCard)
+def save_final_decision(
+    card_id: str,
+    payload: FinalDecisionInput,
+    x_demo_role: str = Header(default="LEAD"),
+):
+    try:
+        return handoff.save_final_decision(card_id, payload, x_demo_role)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="핸드오프 카드를 찾을 수 없습니다") from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except HandoffStateError as error:
+        raise HTTPException(status_code=409, detail={"code": "FINAL_DECISION_NOT_READY", "message": str(error)}) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error

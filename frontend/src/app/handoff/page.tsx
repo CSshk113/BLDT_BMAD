@@ -13,7 +13,10 @@ import {
   generateHandoffCard,
   generateQuestionCandidates,
   loadQuestionCandidates,
+  saveFinalDecision,
+  saveInterviewVerification,
   selectQuestionCandidate,
+  type DecisionValue,
   type HandoffCard,
   type QuestionCandidate,
 } from "@/lib/handoff-api";
@@ -44,6 +47,11 @@ export default function HandoffPage() {
   const [editText, setEditText] = useState("");
   const [editReason, setEditReason] = useState("");
   const [questionBusy, setQuestionBusy] = useState(false);
+  const [verificationDrafts, setVerificationDrafts] = useState<Record<string, string>>({});
+  const [verificationReasons, setVerificationReasons] = useState<Record<string, string>>({});
+  const [decisionValue, setDecisionValue] = useState<DecisionValue | "">("");
+  const [decisionReason, setDecisionReason] = useState("");
+  const [decisionEditReason, setDecisionEditReason] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -51,6 +59,16 @@ export default function HandoffPage() {
     setApplicationId(params.get("application_id") ?? "APPS-2");
     setVersionId(params.get("criteria_version_id") ?? "cv-b2b-sales-v4");
   }, []);
+
+  const hydrateInterviewState = (nextCard: HandoffCard) => {
+    setCard(nextCard);
+    setVerificationDrafts(Object.fromEntries((nextCard.payload.interview_results ?? []).map((item) => [item.question_id, item.interview_result])));
+    setVerificationReasons({});
+    const decision = nextCard.payload.final_decision;
+    setDecisionValue(decision?.decision ?? "");
+    setDecisionReason(decision?.reason ?? "");
+    setDecisionEditReason("");
+  };
 
   const create = async () => {
     const nextApplicationId = applicationId.trim();
@@ -64,7 +82,7 @@ export default function HandoffPage() {
     setError("");
     try {
       const nextCard = (await generateHandoffCard(nextVersionId, nextApplicationId)).card;
-      setCard(nextCard);
+      hydrateInterviewState(nextCard);
       setCandidates((await loadQuestionCandidates(nextCard.id, role)).candidates);
     } catch {
       setCard(null);
@@ -150,6 +168,45 @@ export default function HandoffPage() {
     }
   };
 
+  const saveVerification = async (candidate: QuestionCandidate) => {
+    if (!card || role !== "LEAD") return;
+    const interviewResult = (verificationDrafts[candidate.id] ?? "").trim();
+    const existing = card.payload.interview_results.find((item) => item.question_id === candidate.id);
+    const editReason = (verificationReasons[candidate.id] ?? "").trim();
+    if (!interviewResult || (existing && !editReason)) {
+      setError(existing ? "면접 결과와 변경 사유를 입력하세요." : "면접에서 확인된 결과를 입력하세요.");
+      return;
+    }
+    setQuestionBusy(true);
+    try {
+      const nextCard = await saveInterviewVerification(card.id, candidate.id, interviewResult, editReason || undefined);
+      hydrateInterviewState(nextCard);
+      setError("");
+    } catch {
+      setError("면접 검증 결과를 저장할 수 없습니다. 선택된 질문과 카드 상태를 확인하세요.");
+    } finally {
+      setQuestionBusy(false);
+    }
+  };
+
+  const saveDecision = async () => {
+    if (!card || role !== "LEAD") return;
+    if (!decisionValue || !decisionReason.trim() || (card.payload.final_decision && !decisionEditReason.trim())) {
+      setError(card.payload.final_decision ? "결정값·결정 사유·변경 사유를 입력하세요." : "결정값과 결정 사유를 입력하세요.");
+      return;
+    }
+    setQuestionBusy(true);
+    try {
+      const nextCard = await saveFinalDecision(card.id, decisionValue, decisionReason, decisionEditReason || undefined);
+      hydrateInterviewState(nextCard);
+      setError("");
+    } catch {
+      setError("최종 결정을 저장할 수 없습니다. 모든 선택 질문의 면접 검증 결과를 먼저 기록하세요.");
+    } finally {
+      setQuestionBusy(false);
+    }
+  };
+
   const judgmentRows = card
     ? (((card.payload.judgments as { rows?: JudgmentRow[] }).rows ?? []))
     : [];
@@ -157,9 +214,9 @@ export default function HandoffPage() {
   return (
     <main className="mx-auto grid max-w-7xl gap-6 p-6">
       <header>
-        <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground">HANDOFF CARD · STORY 3.3</p>
+        <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground">HANDOFF CARD · STORY 3.4</p>
         <h1 className="text-3xl font-semibold tracking-tight">현업 핸드오프 카드</h1>
-        <p className="mt-2 text-sm text-muted-foreground">양쪽 판단과 원문 근거에서 인터뷰 질문 후보까지 한 장의 JSON 카드로 연결합니다.</p>
+        <p className="mt-2 text-sm text-muted-foreground">양쪽 판단과 원문 근거에서 면접 검증과 사람의 최종 결정까지 한 장의 JSON 카드로 연결합니다.</p>
       </header>
 
       <Card>
@@ -306,6 +363,69 @@ export default function HandoffPage() {
                 </div>
               ))}
               {candidates.some((candidate) => candidate.status === "SELECTED") && <Alert><AlertTitle>인터뷰 사용 목록</AlertTitle><AlertDescription>{candidates.filter((candidate) => candidate.status === "SELECTED").map((candidate) => candidate.current_question).join(" · ")}</AlertDescription></Alert>}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>면접 검증 비교</CardTitle>
+              <CardDescription>서류 단계의 초기 가설과 LEAD가 기록한 실제 면접 결과를 분리해 보존합니다.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              {candidates.filter((candidate) => candidate.status === "SELECTED").length === 0 && <p className="text-sm text-muted-foreground">먼저 인터뷰에 사용할 질문을 선택하세요.</p>}
+              {candidates.filter((candidate) => candidate.status === "SELECTED").map((candidate) => {
+                const verification = (card.payload.interview_results ?? []).find((item) => item.question_id === candidate.id);
+                return (
+                  <div className="grid gap-3 rounded-md border p-4" key={candidate.id}>
+                    <div>
+                      <Badge variant="outline">선택 질문</Badge>
+                      <p className="mt-2 font-medium">{candidate.current_question}</p>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-md bg-muted/40 p-3">
+                        <p className="text-sm font-medium">서류 초기 가설</p>
+                        <p className="mt-2 whitespace-pre-wrap text-sm">{verification?.initial_hypothesis ?? candidate.reason}</p>
+                        <p className="mt-2 text-xs text-muted-foreground">질문 이유·근거 부족·검토자 우려에서 생성된 참고 가설이며 수정되지 않습니다.</p>
+                      </div>
+                      <div className="grid gap-2">
+                        <label className="text-sm font-medium" htmlFor={`verification-${candidate.id}`}>실제 면접 결과</label>
+                        <Textarea id={`verification-${candidate.id}`} aria-label={`면접 결과 ${candidate.id}`} disabled={role !== "LEAD" || questionBusy} value={verificationDrafts[candidate.id] ?? ""} onChange={(event) => setVerificationDrafts((current) => ({ ...current, [candidate.id]: event.target.value }))} placeholder="면접에서 확인한 사실·행동·결과를 기록하세요." />
+                        {verification && <Textarea aria-label={`검증 결과 변경 사유 ${candidate.id}`} disabled={role !== "LEAD" || questionBusy} value={verificationReasons[candidate.id] ?? ""} onChange={(event) => setVerificationReasons((current) => ({ ...current, [candidate.id]: event.target.value }))} placeholder="기존 결과를 수정할 때 변경 사유" />}
+                        {role === "LEAD" && <Button type="button" onClick={() => saveVerification(candidate)} disabled={questionBusy}>{verification ? "검증 결과 수정" : "검증 결과 저장"}</Button>}
+                        {verification && <><p className="text-xs text-muted-foreground">기록자 {verification.recorded_by} · {new Date(verification.recorded_at).toLocaleString("ko-KR")} · 수정 이력 {verification.edit_history.length}건</p>{verification.edit_history.map((entry, index) => <p className="text-xs text-muted-foreground" key={`${verification.id}-edit-${index}`}>이전 결과: {String(entry.previous_result ?? "-")} → 변경: {String(entry.new_result ?? "-")} · {String(entry.actor ?? "-")} · {String(entry.timestamp ?? "-")} · 사유: {String(entry.reason ?? "-")}</p>)}</>}
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">연결 기준 {candidate.criterion_item_ids.join(", ")} · 참조 근거 {candidate.evidence_ids.join(", ")}</p>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>사람의 최종 결정</CardTitle>
+              <CardDescription>AI가 결정하지 않습니다. 모든 선택 질문의 검증 결과를 확인한 LEAD가 직접 저장합니다.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              <label className="grid gap-2 text-sm font-medium" htmlFor="final-decision">최종 결정값
+                <select id="final-decision" aria-label="최종 결정값" className="h-10 rounded-md border bg-background px-3" disabled={role !== "LEAD" || questionBusy} value={decisionValue} onChange={(event) => setDecisionValue(event.target.value as DecisionValue | "")}>
+                  <option value="">결정값 선택</option>
+                  <option value="채용">채용</option>
+                  <option value="미채용">미채용</option>
+                  <option value="종료">종료</option>
+                  <option value="인재풀 등록">인재풀 등록</option>
+                </select>
+              </label>
+              <label className="grid gap-2 text-sm font-medium" htmlFor="decision-reason">결정 사유
+                <Textarea id="decision-reason" aria-label="결정 사유" disabled={role !== "LEAD" || questionBusy} value={decisionReason} onChange={(event) => setDecisionReason(event.target.value)} placeholder="면접 검증 결과를 바탕으로 사람이 판단한 이유를 입력하세요." />
+              </label>
+              {card.payload.final_decision && <label className="grid gap-2 text-sm font-medium" htmlFor="decision-edit-reason">결정 변경 사유
+                <Textarea id="decision-edit-reason" aria-label="결정 변경 사유" disabled={role !== "LEAD" || questionBusy} value={decisionEditReason} onChange={(event) => setDecisionEditReason(event.target.value)} placeholder="기존 결정을 수정한 이유" />
+              </label>}
+              {role === "LEAD" && <Button type="button" onClick={saveDecision} disabled={questionBusy}>{card.payload.final_decision ? "최종 결정 수정" : "최종 결정 저장"}</Button>}
+              {card.payload.final_decision && <div className="rounded-md border bg-muted/40 p-3 text-sm"><p className="font-medium">저장된 결정: {card.payload.final_decision.decision}</p><p className="mt-1">{card.payload.final_decision.reason}</p><p className="mt-1 text-xs text-muted-foreground">결정자 {card.payload.final_decision.actor} · {new Date(card.payload.final_decision.decided_at).toLocaleString("ko-KR")} · 기준 {card.payload.final_decision.criteria_version_id}</p>{card.payload.final_decision.edit_history.map((entry, index) => <p className="mt-1 text-xs text-muted-foreground" key={`decision-edit-${index}`}>이전 결정: {String((entry.previous_value as { decision?: string })?.decision ?? "-")} → 변경: {String((entry.new_value as { decision?: string })?.decision ?? "-")} · {String(entry.actor ?? "-")} · {String(entry.timestamp ?? "-")} · 사유: {String(entry.reason ?? "-")}</p>)}</div>}
+              {(card.payload.audit_timeline ?? []).length > 0 && <div className="rounded-md border p-3"><p className="text-sm font-medium">감사 타임라인</p><ol className="mt-2 grid gap-1 text-xs text-muted-foreground">{(card.payload.audit_timeline ?? []).map((event, index) => <li key={`${event.timestamp}-${index}`}>{new Date(event.timestamp).toLocaleString("ko-KR")} · {event.summary} · 대상 {event.target_id} · {event.actor} · {event.source}</li>)}</ol></div>}
             </CardContent>
           </Card>
         </section>

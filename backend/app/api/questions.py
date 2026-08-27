@@ -28,7 +28,7 @@ def generate_questions(card_id: str, x_demo_role: str = Header(default="LEAD")):
     if x_demo_role != "LEAD":
         raise HTTPException(status_code=403, detail="질문 후보 생성 권한이 없습니다")
     try:
-        return handoff.generate_question_candidates(card_id)
+        return handoff.generate_question_candidates(card_id, x_demo_role)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="핸드오프 카드를 찾을 수 없습니다") from error
     except HandoffStateError as error:

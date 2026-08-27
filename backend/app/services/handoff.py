@@ -15,6 +15,10 @@ from backend.app.models.handoff import (
     HandoffPrerequisiteError,
     HandoffStateError,
     HandoffStatus,
+    DecisionRecord,
+    FinalDecisionInput,
+    InterviewVerification,
+    InterviewVerificationInput,
     QuestionCandidate,
     QuestionCandidateEditInput,
     QuestionCandidateListResponse,
@@ -173,6 +177,25 @@ def _build_payload(connection, version, application_id: str, mappings, artifact)
         "insufficient_evidence": insufficient,
         "interview_questions": [],
         "interview_results": [],
+        "final_decision": None,
+        "audit_timeline": [
+            {
+                "event_type": "CRITERIA_APPROVED",
+                "target_id": version.id,
+                "actor": version.approved_by or "SYSTEM",
+                "timestamp": (version.approved_at or version.updated_at).isoformat(),
+                "source": "SYSTEM",
+                "summary": "승인된 기준 버전 적용",
+            },
+            {
+                "event_type": "HANDOFF_READY",
+                "target_id": application_id,
+                "actor": "SYSTEM",
+                "timestamp": now_iso(),
+                "source": "SYSTEM",
+                "summary": "공식 핸드오프 카드 생성",
+            },
+        ],
     }
 
 
@@ -262,7 +285,7 @@ def list_question_candidates(card_id: str, *, selected_only: bool = False) -> Qu
     )
 
 
-def generate_question_candidates(card_id: str) -> QuestionCandidateListResponse:
+def generate_question_candidates(card_id: str, actor_role: str = "LEAD") -> QuestionCandidateListResponse:
     from backend.app.services import questions
 
     with connect() as connection:
@@ -279,6 +302,7 @@ def generate_question_candidates(card_id: str) -> QuestionCandidateListResponse:
         payload["interview_questions"] = [
             candidate.model_dump(mode="json") for candidate in [*current, *generated]
         ]
+        _append_audit(payload, "QUESTION_CANDIDATES_GENERATED", card_id, actor_role, "인터뷰 질문 후보 생성 요청")
         result = connection.execute(
             "UPDATE handoff_cards SET payload_json = ?, updated_at = ? WHERE id = ? AND status = 'READY'",
             (json.dumps(payload, ensure_ascii=False), now_iso(), card_id),
@@ -306,6 +330,10 @@ def _mutate_question(card_id: str, question_id: str, mutate, actor_role: str) ->
             raise KeyError(question_id)
         if target.status == QuestionCandidateStatus.DELETED:
             raise HandoffStateError("삭제된 질문 후보는 수정할 수 없습니다", card)
+        if _decision_record(card.payload) is not None:
+            raise HandoffStateError("최종 결정 이후 질문 후보를 수정할 수 없습니다", card)
+        if any(result.question_id == question_id for result in _verification_results(card.payload)):
+            raise HandoffStateError("면접 검증 결과가 있는 질문 후보는 수정할 수 없습니다", card)
         changed = mutate(target, candidates, card.payload)
         payload = dict(card.payload)
         payload["interview_questions"] = [candidate.model_dump(mode="json") for candidate in candidates]
@@ -370,6 +398,8 @@ def select_question_candidate(card_id: str, question_id: str, selected: bool, ac
         card = _card_from_row(row)
         if card.status != HandoffStatus.READY:
             raise HandoffStateError("READY 상태의 핸드오프 카드만 질문 후보를 선택할 수 있습니다", card)
+        if _decision_record(card.payload) is not None:
+            raise HandoffStateError("최종 결정 이후 질문 선택 상태를 변경할 수 없습니다", card)
         candidates = _question_candidates(card.payload)
         target = next((candidate for candidate in candidates if candidate.id == question_id), None)
         if target is None:
@@ -379,6 +409,7 @@ def select_question_candidate(card_id: str, question_id: str, selected: bool, ac
         target.status = QuestionCandidateStatus.SELECTED if selected else QuestionCandidateStatus.CANDIDATE
         payload = dict(card.payload)
         payload["interview_questions"] = [candidate.model_dump(mode="json") for candidate in candidates]
+        _append_audit(payload, "QUESTION_CANDIDATE_SELECTED" if selected else "QUESTION_CANDIDATE_UNSELECTED", question_id, actor_role, "인터뷰 질문 선택 상태 변경")
         result = connection.execute(
             "UPDATE handoff_cards SET payload_json = ?, updated_at = ? WHERE id = ? AND status = 'READY'",
             (json.dumps(payload, ensure_ascii=False), now_iso(), card_id),
@@ -387,3 +418,232 @@ def select_question_candidate(card_id: str, question_id: str, selected: bool, ac
             raise HandoffStateError("핸드오프 카드가 변경되어 질문 선택 상태를 저장하지 못했습니다", card)
         connection.commit()
     return target
+
+
+def _require_interview_card(card: HandoffCard) -> None:
+    if card.status != HandoffStatus.READY:
+        raise HandoffStateError("READY 상태의 핸드오프 카드만 면접 결과를 기록할 수 있습니다", card)
+    version = criteria.get_version(card.criteria_version_id)
+    if version.status != criteria.CriteriaVersionStatus.APPROVED:
+        raise HandoffStateError("승인된 기준 버전의 핸드오프만 면접 결과를 기록할 수 있습니다", card)
+
+
+def _verification_results(payload: dict) -> list[InterviewVerification]:
+    values = payload.get("interview_results", [])
+    if not isinstance(values, list):
+        raise HandoffStateError("핸드오프 카드의 면접 결과 payload가 손상되었습니다")
+    try:
+        results = [InterviewVerification.model_validate(value) for value in values]
+    except ValueError as error:
+        raise HandoffStateError("핸드오프 카드의 면접 결과 payload가 손상되었습니다") from error
+    if len({result.question_id for result in results}) != len(results):
+        raise HandoffStateError("핸드오프 카드에 중복된 면접 결과가 있습니다")
+    return results
+
+
+def _selected_questions(payload: dict) -> list[QuestionCandidate]:
+    return [candidate for candidate in _question_candidates(payload) if candidate.status == QuestionCandidateStatus.SELECTED]
+
+
+def _initial_hypothesis(payload: dict, question: QuestionCandidate) -> str:
+    parts = [question.reason]
+    insufficient_values = payload.get("insufficient_evidence", [])
+    insufficient = [
+        item["criterion_text"]
+        for item in (insufficient_values if isinstance(insufficient_values, list) else [])
+        if isinstance(item, dict) and item.get("criterion_item_id") in question.criterion_item_ids
+    ]
+    difference_values = payload.get("differences", [])
+    differences = [
+        item.get("criterion_item_id")
+        for item in (difference_values if isinstance(difference_values, list) else [])
+        if isinstance(item, dict) and item.get("criterion_item_id") in question.criterion_item_ids
+    ]
+    judgment_data = payload.get("judgments", {})
+    judgment_rows = judgment_data.get("rows", []) if isinstance(judgment_data, dict) else []
+    for row in judgment_rows if isinstance(judgment_rows, list) else []:
+        if not isinstance(row, dict) or row.get("criterion_item_id") not in question.criterion_item_ids:
+            continue
+        for role, label in (("hr_review", "HR"), ("hm_review", "HM")):
+            review = row.get(role)
+            if isinstance(review, dict) and (review.get("status") or review.get("reason_text")):
+                parts.append(f"{label}: {review.get('status', '미입력')} · {review.get('reason_text', '')}".strip(" ·"))
+    if insufficient:
+        parts.append(f"서류 근거 부족: {', '.join(insufficient)}")
+    if differences:
+        parts.append(f"검토자 이견 기준: {', '.join(differences)}")
+    return " · ".join(part for part in parts if part)
+
+
+def _audit_timeline(payload: dict) -> list[dict]:
+    timeline = payload.get("audit_timeline", [])
+    if not isinstance(timeline, list) or not all(isinstance(event, dict) for event in timeline):
+        raise HandoffStateError("핸드오프 카드의 감사 타임라인 payload가 손상되었습니다")
+    return timeline
+
+
+def _append_audit(payload: dict, event_type: str, target_id: str, actor: str, summary: str) -> None:
+    timeline = _audit_timeline(payload)
+    timeline.extend([
+        {
+            "event_type": event_type,
+            "target_id": target_id,
+            "actor": actor,
+            "timestamp": now_iso(),
+            "source": "HUMAN",
+            "summary": summary,
+        }
+    ])
+    payload["audit_timeline"] = timeline
+
+
+def save_interview_verification(card_id: str, payload: InterviewVerificationInput, actor_role: str) -> HandoffCard:
+    if actor_role != "LEAD":
+        raise PermissionError("면접 검증 결과 기록 권한이 없습니다")
+    result_text = payload.interview_result.strip()
+    if not result_text:
+        raise ValueError("면접 검증 결과를 입력하세요")
+    with connect() as connection:
+        initialize_schema(connection)
+        row = connection.execute("SELECT * FROM handoff_cards WHERE id = ?", (card_id,)).fetchone()
+        if row is None:
+            raise KeyError(card_id)
+        original_updated_at = row["updated_at"]
+        card = _card_from_row(row)
+        _require_interview_card(card)
+        if _decision_record(card.payload) is not None:
+            raise HandoffStateError("최종 결정 이후 면접 검증 결과를 수정할 수 없습니다", card)
+        selected = _selected_questions(card.payload)
+        question = next((item for item in selected if item.id == payload.question_id), None)
+        if question is None:
+            raise HandoffStateError("선택된 질문만 면접 검증 결과를 기록할 수 있습니다", card)
+        results = _verification_results(card.payload)
+        current = next((item for item in results if item.question_id == payload.question_id), None)
+        timestamp = now_iso()
+        if current is None:
+            current = InterviewVerification(
+                id=f"verification-{uuid.uuid4().hex[:12]}",
+                question_id=question.id,
+                original_question=question.original_question,
+                current_question=question.current_question,
+                criterion_item_ids=question.criterion_item_ids,
+                evidence_ids=question.evidence_ids,
+                initial_hypothesis=_initial_hypothesis(card.payload, question),
+                interview_result=result_text,
+                recorded_by=actor_role,
+                recorded_at=timestamp,
+            )
+            results.append(current)
+            event_type = "INTERVIEW_VERIFICATION_RECORDED"
+            summary = "면접 검증 결과 기록"
+        else:
+            if payload.edit_reason is None or not payload.edit_reason.strip():
+                raise ValueError("검증 결과 변경 사유를 입력하세요")
+            previous = current.interview_result
+            current.interview_result = result_text
+            current.recorded_by = actor_role
+            current.recorded_at = datetime.fromisoformat(timestamp)
+            current.edit_history.append({
+                "previous_result": previous,
+                "new_result": result_text,
+                "actor": actor_role,
+                "timestamp": timestamp,
+                "reason": payload.edit_reason.strip(),
+            })
+            event_type = "INTERVIEW_VERIFICATION_UPDATED"
+            summary = "면접 검증 결과 수정"
+        next_payload = dict(card.payload)
+        next_payload["interview_results"] = [item.model_dump(mode="json") for item in results]
+        _append_audit(next_payload, event_type, payload.question_id, actor_role, summary)
+        updated_at = now_iso()
+        updated = connection.execute(
+            "UPDATE handoff_cards SET payload_json = ?, updated_at = ? WHERE id = ? AND status = 'READY' AND updated_at = ?",
+            (json.dumps(next_payload, ensure_ascii=False), updated_at, card_id, original_updated_at),
+        )
+        if updated.rowcount != 1:
+            raise HandoffStateError("핸드오프 카드가 변경되어 면접 결과를 저장하지 못했습니다", card)
+        connection.commit()
+        saved = connection.execute("SELECT * FROM handoff_cards WHERE id = ?", (card_id,)).fetchone()
+    return _card_from_row(saved)
+
+
+def _decision_record(payload: dict) -> DecisionRecord | None:
+    value = payload.get("final_decision")
+    if value is None:
+        return None
+    try:
+        return DecisionRecord.model_validate(value)
+    except ValueError as error:
+        raise HandoffStateError("핸드오프 카드의 최종 결정 payload가 손상되었습니다") from error
+
+
+def save_final_decision(card_id: str, payload: FinalDecisionInput, actor_role: str) -> HandoffCard:
+    if actor_role != "LEAD":
+        raise PermissionError("최종 결정 기록 권한이 없습니다")
+    reason = payload.reason.strip()
+    if not reason:
+        raise ValueError("최종 결정 사유를 입력하세요")
+    with connect() as connection:
+        initialize_schema(connection)
+        row = connection.execute("SELECT * FROM handoff_cards WHERE id = ?", (card_id,)).fetchone()
+        if row is None:
+            raise KeyError(card_id)
+        original_updated_at = row["updated_at"]
+        card = _card_from_row(row)
+        _require_interview_card(card)
+        selected = _selected_questions(card.payload)
+        if not selected:
+            raise HandoffStateError("인터뷰에 선택된 질문이 없습니다", card)
+        results = _verification_results(card.payload)
+        result_ids = {item.question_id for item in results}
+        missing = [item.id for item in selected if item.id not in result_ids]
+        if missing:
+            raise HandoffStateError(f"선택 질문의 면접 검증 결과가 누락되었습니다: {', '.join(missing)}", card)
+        selected_by_id = {item.id: item for item in selected}
+        for result in results:
+            question = selected_by_id.get(result.question_id)
+            if question is None or result.current_question != question.current_question or result.criterion_item_ids != question.criterion_item_ids or result.evidence_ids != question.evidence_ids:
+                raise HandoffStateError("면접 검증 결과의 질문·기준·근거 연결이 최신 선택 질문과 다릅니다", card)
+        current = _decision_record(card.payload)
+        timestamp = now_iso()
+        if current is None:
+            current = DecisionRecord(
+                id=f"decision-{uuid.uuid4().hex[:12]}",
+                decision=payload.decision,
+                reason=reason,
+                actor=actor_role,
+                decided_at=timestamp,
+                criteria_version_id=card.criteria_version_id,
+            )
+            event_type = "FINAL_DECISION_RECORDED"
+            summary = f"사람의 최종 결정 기록: {payload.decision.value}"
+        else:
+            if payload.edit_reason is None or not payload.edit_reason.strip():
+                raise ValueError("최종 결정 변경 사유를 입력하세요")
+            previous = {"decision": current.decision.value, "reason": current.reason}
+            current.edit_history.append({
+                "previous_value": previous,
+                "new_value": {"decision": payload.decision.value, "reason": reason},
+                "actor": actor_role,
+                "timestamp": timestamp,
+                "reason": payload.edit_reason.strip(),
+            })
+            current.decision = payload.decision
+            current.reason = reason
+            current.actor = actor_role
+            current.decided_at = datetime.fromisoformat(timestamp)
+            event_type = "FINAL_DECISION_UPDATED"
+            summary = f"사람의 최종 결정 수정: {payload.decision.value}"
+        next_payload = dict(card.payload)
+        next_payload["final_decision"] = current.model_dump(mode="json")
+        _append_audit(next_payload, event_type, current.id, actor_role, summary)
+        updated_at = now_iso()
+        updated = connection.execute(
+            "UPDATE handoff_cards SET payload_json = ?, updated_at = ? WHERE id = ? AND status = 'READY' AND updated_at = ?",
+            (json.dumps(next_payload, ensure_ascii=False), updated_at, card_id, original_updated_at),
+        )
+        if updated.rowcount != 1:
+            raise HandoffStateError("핸드오프 카드가 변경되어 최종 결정을 저장하지 못했습니다", card)
+        connection.commit()
+        saved = connection.execute("SELECT * FROM handoff_cards WHERE id = ?", (card_id,)).fetchone()
+    return _card_from_row(saved)

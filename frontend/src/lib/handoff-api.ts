@@ -16,7 +16,9 @@ export type HandoffCard = {
     differences: Array<{ criterion_item_id: string; fields: string[] }>;
     insufficient_evidence: Array<{ criterion_item_id: string; criterion_text: string; question_needed: boolean }>;
     interview_questions: QuestionCandidate[];
-    interview_results: unknown[];
+    interview_results: InterviewVerification[];
+    final_decision: DecisionRecord | null;
+    audit_timeline: AuditEvent[];
   };
   created_by: string;
   failure_reason: string | null;
@@ -50,6 +52,41 @@ export type QuestionCandidateListResponse = {
   card_id: string;
   candidates: QuestionCandidate[];
   selected_question_ids: string[];
+};
+
+export type InterviewVerification = {
+  id: string;
+  question_id: string;
+  original_question: string;
+  current_question: string;
+  criterion_item_ids: string[];
+  evidence_ids: string[];
+  initial_hypothesis: string;
+  interview_result: string;
+  recorded_by: string;
+  recorded_at: string;
+  edit_history: Array<Record<string, unknown>>;
+};
+
+export type DecisionValue = "채용" | "미채용" | "종료" | "인재풀 등록";
+
+export type DecisionRecord = {
+  id: string;
+  decision: DecisionValue;
+  reason: string;
+  actor: string;
+  decided_at: string;
+  criteria_version_id: string;
+  edit_history: Array<Record<string, unknown>>;
+};
+
+export type AuditEvent = {
+  event_type: string;
+  target_id: string;
+  actor: string;
+  timestamp: string;
+  source: string;
+  summary: string;
 };
 
 export class HandoffApiError extends ApiRequestError {
@@ -99,5 +136,21 @@ export function selectQuestionCandidate(cardId: string, questionId: string, sele
     method: "POST",
     headers: { "X-Demo-Role": role },
     body: JSON.stringify({ selected }),
+  });
+}
+
+export function saveInterviewVerification(cardId: string, questionId: string, interviewResult: string, editReason?: string) {
+  return request<HandoffCard>(`/api/handoff/${encodeURIComponent(cardId)}/verifications`, {
+    method: "POST",
+    headers: { "X-Demo-Role": "LEAD" },
+    body: JSON.stringify({ question_id: questionId, interview_result: interviewResult, edit_reason: editReason }),
+  });
+}
+
+export function saveFinalDecision(cardId: string, decision: DecisionValue, reason: string, editReason?: string) {
+  return request<HandoffCard>(`/api/handoff/${encodeURIComponent(cardId)}/decision`, {
+    method: "POST",
+    headers: { "X-Demo-Role": "LEAD" },
+    body: JSON.stringify({ decision, reason, edit_reason: editReason }),
   });
 }
