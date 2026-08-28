@@ -19,6 +19,7 @@ import {
   saveReview,
   normalizeSourceLocation,
   toUiItems,
+  CALIBRATION_APPLICATION_ID,
   type ReviewInput,
   type ReviewLog,
   type ReviewMatrix,
@@ -237,7 +238,7 @@ export default function CalibrationPage() {
         <nav className="workflow-nav" aria-label="채용 워크플로우">
           <Link className="nav-item active" href="/calibration" aria-current="page"><span className="nav-index">01</span><span>기준 교정</span><span className="nav-state">진행 중</span></Link>
           {officialUnlocked ? <Link className="nav-item active" href="/applications"><span className="nav-index">02</span><span>지원서 검토</span><span className="nav-state">사용 가능</span></Link> : <button className="nav-item locked" type="button" disabled><span className="nav-index">02</span><span>지원서 검토</span><span className="nav-state">잠김</span></button>}
-          {officialUnlocked ? <Link className="nav-item active" href={`/handoff?application_id=APPS-2&criteria_version_id=${encodeURIComponent(versionId)}`}><span className="nav-index">03</span><span>현업 핸드오프</span><span className="nav-state">사용 가능</span></Link> : <button className="nav-item locked" type="button" disabled><span className="nav-index">03</span><span>현업 핸드오프</span><span className="nav-state">잠김</span></button>}
+          {officialUnlocked ? <Link className="nav-item active" href={`/handoff?application_id=${encodeURIComponent(CALIBRATION_APPLICATION_ID)}&criteria_version_id=${encodeURIComponent(versionId)}`}><span className="nav-index">03</span><span>현업 핸드오프</span><span className="nav-state">사용 가능</span></Link> : <button className="nav-item locked" type="button" disabled><span className="nav-index">03</span><span>현업 핸드오프</span><span className="nav-state">잠김</span></button>}
         </nav>
         <div className="sidebar-footer"><span className="avatar">H</span><span><strong>민지</strong><small>채용 담당자 · HR</small></span></div>
       </aside>

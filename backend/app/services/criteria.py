@@ -48,6 +48,7 @@ DEMO_APPLICATION_ID = "APPS-2"
 DEMO_CANDIDATE_TOKEN = "후보081"
 DEMO_SOURCE = "원티드"
 DEMO_EXCERPT = '“신규 고객 30개사를 직접 발굴하고 콜드 아웃바운드로 미팅을 만들었습니다.”'
+CALIBRATION_APPLICATION_ID = "APPS-179"
 
 DEMO_REVIEWS = (
     ("HR", 1, "FULFILLED", "신규 고객 발굴 경험이 명시되어 있습니다.", "p.2 · 경력기술서"),
@@ -112,7 +113,8 @@ def ensure_seed_data() -> None:
         initialize_schema(connection)
         existing = connection.execute("SELECT id FROM criteria_versions LIMIT 1").fetchone()
         if existing:
-            _ensure_demo_reviews(connection, existing["id"])
+            _ensure_demo_reviews(connection, existing["id"], DEMO_APPLICATION_ID)
+            _ensure_demo_reviews(connection, existing["id"], CALIBRATION_APPLICATION_ID)
             connection.commit()
             return
         timestamp = now_iso()
@@ -145,14 +147,15 @@ def ensure_seed_data() -> None:
                 "원문 확인 가능",
             ),
         )
-        _ensure_demo_reviews(connection, version_id)
+        _ensure_demo_reviews(connection, version_id, DEMO_APPLICATION_ID)
+        _ensure_demo_reviews(connection, version_id, CALIBRATION_APPLICATION_ID)
         connection.commit()
 
 
-def _ensure_demo_reviews(connection, version_id: str) -> None:
+def _ensure_demo_reviews(connection, version_id: str, application_id: str) -> None:
     existing = connection.execute(
-        "SELECT COUNT(*) AS count FROM review_logs WHERE criteria_version_id = ?",
-        (version_id,),
+        "SELECT COUNT(*) AS count FROM review_logs WHERE criteria_version_id = ? AND application_id = ? AND review_scope = 'CALIBRATION'",
+        (version_id, application_id),
     ).fetchone()["count"]
     if existing:
         return
@@ -173,9 +176,9 @@ def _ensure_demo_reviews(connection, version_id: str) -> None:
             VALUES (?, ?, ?, ?, ?, 'CALIBRATION', ?, ?, ?, ?, ?)
             """,
             (
-                f"review-demo-{version_id}-{reviewer_role.lower()}-{item_number}",
+                f"review-demo-{version_id}-{application_id.lower()}-{reviewer_role.lower()}-{item_number}",
                 version_id,
-                DEMO_APPLICATION_ID,
+                application_id,
                 item_id,
                 reviewer_role,
                 review_status,

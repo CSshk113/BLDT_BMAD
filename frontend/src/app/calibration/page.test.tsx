@@ -63,13 +63,13 @@ describe("calibration page", () => {
           ok: true,
           json: async () => ({
             criteria_version_id: "cv-b2b-sales-v4",
-            application_id: "APPS-2",
+            application_id: "APPS-179",
             open_conflict_count: 1,
             application_summary: {
-              application_id: "APPS-2",
-              candidate_token: "후보081",
+              application_id: "APPS-179",
+              candidate_token: "후보001",
               position_name: "서버 지원자 포지션",
-              source: "원티드",
+              source: "원픽-잡코리아",
               excerpt: "API가 반환한 대표 원문",
               source_location: "p.9 · 경력기술서",
             },
@@ -79,8 +79,8 @@ describe("calibration page", () => {
               requirement_type: "필수",
               conflict_status: "OPEN",
               differences: ["상태"],
-              hr_review: { id: "hr-1", criteria_version_id: "cv-b2b-sales-v4", application_id: "APPS-2", criterion_item_id: "server-item", reviewer_role: "HR", status: "FULFILLED", reason_text: "HR 근거", source_location: "p.1", created_at: "2026-08-27T00:00:00Z", updated_at: "2026-08-27T00:00:00Z" },
-              hm_review: { id: "hm-1", criteria_version_id: "cv-b2b-sales-v4", application_id: "APPS-2", criterion_item_id: "server-item", reviewer_role: "HM", status: "UNVERIFIABLE", reason_text: "HM 근거", source_location: "p.1", created_at: "2026-08-27T00:00:00Z", updated_at: "2026-08-27T00:00:00Z" },
+              hr_review: { id: "hr-1", criteria_version_id: "cv-b2b-sales-v4", application_id: "APPS-179", criterion_item_id: "server-item", reviewer_role: "HR", status: "FULFILLED", reason_text: "HR 근거", source_location: "p.1", created_at: "2026-08-27T00:00:00Z", updated_at: "2026-08-27T00:00:00Z" },
+              hm_review: { id: "hm-1", criteria_version_id: "cv-b2b-sales-v4", application_id: "APPS-179", criterion_item_id: "server-item", reviewer_role: "HM", status: "UNVERIFIABLE", reason_text: "HM 근거", source_location: "p.1", created_at: "2026-08-27T00:00:00Z", updated_at: "2026-08-27T00:00:00Z" },
             }],
           }),
         } as Response);
@@ -100,7 +100,7 @@ describe("calibration page", () => {
     render(<CalibrationPage />);
 
     expect(await screen.findByText("열린 충돌 1건")).toBeInTheDocument();
-    expect(screen.getByText("서버 지원자 포지션 · 출처 원티드")).toBeInTheDocument();
+    expect(screen.getByText("서버 지원자 포지션 · 출처 원픽-잡코리아")).toBeInTheDocument();
     expect(screen.queryByText("API가 반환한 대표 원문")).not.toBeInTheDocument();
     expect(screen.getAllByText("HR 근거").length).toBeGreaterThan(0);
     expect(screen.getAllByText("HM 근거").length).toBeGreaterThan(0);

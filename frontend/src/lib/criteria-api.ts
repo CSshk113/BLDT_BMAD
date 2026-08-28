@@ -37,6 +37,8 @@ export type ApiPreview = {
   }>;
 };
 
+export const CALIBRATION_APPLICATION_ID = "APPS-179";
+
 export type ReviewerRole = "HR" | "HM";
 export type ReviewStatus =
   | "FULFILLED"
@@ -237,7 +239,7 @@ export function fallbackReviewMatrix(versionId: string, items: CriteriaItem[] = 
   ];
   const reviews: ReviewLog[] = reviewSeeds.flatMap(([role, status, reason, location], index) => {
     const item = fallbackItems[Math.floor(index / 2) === 0 ? 0 : Math.floor(index / 2) === 1 ? 1 : 2];
-    return item ? [demoReview(versionId, "APPS-2", item.id, role, status, reason, location)] : [];
+    return item ? [demoReview(versionId, CALIBRATION_APPLICATION_ID, item.id, role, status, reason, location)] : [];
   });
   const rows = fallbackItems.map((item) => {
     const hrReview = reviews.find((review) => review.criterion_item_id === item.id && review.reviewer_role === "HR") ?? null;
@@ -252,12 +254,12 @@ export function fallbackReviewMatrix(versionId: string, items: CriteriaItem[] = 
   });
   return {
     criteria_version_id: versionId,
-    application_id: "APPS-2",
+    application_id: CALIBRATION_APPLICATION_ID,
     application_summary: {
-      application_id: "APPS-2",
-      candidate_token: "후보081",
-      position_name: "B2B 영업 매니저 5년 이상 ver.4",
-      source: "원티드",
+      application_id: CALIBRATION_APPLICATION_ID,
+      candidate_token: "후보001",
+      position_name: "B2B 영업 매니저 (3년 이상)",
+      source: "원픽-잡코리아",
       excerpt: '“신규 고객 30개사를 직접 발굴하고 콜드 아웃바운드로 미팅을 만들었습니다.”',
       source_location: "p.2 · 경력기술서",
     },
@@ -279,9 +281,11 @@ export function normalizeSourceLocation(value: string): string {
   return tokens.sort().join("|");
 }
 
-export async function loadReviewMatrix(versionId: string, items: CriteriaItem[] = []) {
+export async function loadReviewMatrix(versionId: string, items: CriteriaItem[] = [], applicationId = CALIBRATION_APPLICATION_ID) {
   try {
-    const matrix = await request<ReviewMatrix>(`/api/criteria/${versionId}/conflicts?application_id=APPS-2`);
+    const matrix = await request<ReviewMatrix>(
+      `/api/criteria/${encodeURIComponent(versionId)}/conflicts?application_id=${encodeURIComponent(applicationId)}`,
+    );
     if (!Array.isArray(matrix.rows)) throw new Error("Invalid review matrix");
     return matrix;
   } catch (error) {

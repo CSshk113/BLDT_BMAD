@@ -33,10 +33,10 @@ const ROLE_LABELS: Record<ReviewerRole, string> = {
 };
 
 const DEFAULT_SAMPLE: CalibrationSample = {
-  application_id: "APPS-2",
-  candidate_token: "후보081",
-  position_name: "B2B 영업 매니저 5년 이상 ver.4",
-  source: "원티드",
+  application_id: "APPS-179",
+  candidate_token: "후보001",
+  position_name: "B2B 영업 매니저 (3년 이상)",
+  source: "원픽-잡코리아",
   excerpt: '“신규 고객 30개사를 직접 발굴하고 콜드 아웃바운드로 미팅을 만들었습니다.”',
   source_location: "p.2 · 경력기술서",
 };
