@@ -233,7 +233,9 @@ export default function CalibrationPage() {
   return (
     <main className="shell">
       <aside className="sidebar">
-        <div className="brand-mark"><span className="brand-symbol">◈</span><span>Code.Presso</span></div>
+        <div className="brand-mark">
+          <img src="/code-presso.svg" alt="Code.Presso" width={156} height={28} />
+        </div>
         <div className="workspace-label">RECRUITING CONSOLE</div>
         <nav className="workflow-nav" aria-label="채용 워크플로우">
           <Link className="nav-item active" href="/calibration" aria-current="page"><span className="nav-index">01</span><span>기준 교정</span><span className="nav-state">진행 중</span></Link>
