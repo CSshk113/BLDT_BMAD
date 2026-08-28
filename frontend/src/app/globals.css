@@ -69,9 +69,9 @@ button { cursor: pointer; }
 .brand-symbol { color: #72a1ff; font-size: 25px; }
 .workspace-label { color: #9bb0ca; letter-spacing: 1.4px; font-size: 10px; margin: 57px 12px 18px; }
 .workflow-nav { display: grid; gap: 7px; }
-.nav-item { display: grid; grid-template-columns: 29px 1fr auto; align-items: center; gap: 8px; padding: 13px 11px; border-radius: 9px; color: #c3d1e4; font-size: 13px; }
+.nav-item { display: grid; grid-template-columns: 29px 1fr auto; align-items: center; gap: 8px; width: 100%; padding: 13px 11px; border: 0; border-radius: 9px; background: transparent; color: #c3d1e4; font: inherit; font-size: 13px; text-align: left; text-decoration: none; cursor: pointer; }
 .nav-item.active { color: #fff; background: #204775; box-shadow: inset 3px 0 #71a1ff; }
-.nav-item.locked { color: #7088a7; }
+.nav-item.locked { color: #7088a7; cursor: not-allowed; }
 .nav-index { font-size: 11px; color: #8da9cc; }
 .nav-state { font-size: 10px; color: #8da9cc; }
 .nav-item.active .nav-state { color: #8bb4ff; }

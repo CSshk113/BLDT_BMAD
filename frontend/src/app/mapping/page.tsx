@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +16,12 @@ export default function MappingPage() {
   const [result, setResult] = useState<MappingResponse | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setApplicationId(params.get("application_id") ?? "");
+    setCriteriaVersionId(params.get("criteria_version_id") ?? "cv-b2b-sales-v4");
+  }, []);
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -43,6 +50,6 @@ export default function MappingPage() {
       <Button type="submit" disabled={saving || !applicationId.trim()}>{saving ? "매핑 중…" : "기준별 매핑 실행"}</Button>
     </form></CardContent></Card>
     {error && <Alert variant="destructive"><AlertTitle>매핑할 수 없습니다</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
-    {result && <MappingResults result={result} />}
+    {result && <><MappingResults result={result} /><div className="flex justify-end"><Link className="inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground" href={`/evidence?application_id=${encodeURIComponent(result.application_id)}&criteria_version_id=${encodeURIComponent(result.criteria_version_id)}&run_id=${encodeURIComponent(result.processing_run_id)}`}>다음: 원문 근거 검토 <span aria-hidden="true">→</span></Link></div></>}
   </main>;
 }

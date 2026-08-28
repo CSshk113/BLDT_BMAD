@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import React from "react";
+import Link from "next/link";
 import { CriteriaItem, CriteriaVersionPanel } from "@/components/criteria/CriteriaVersionPanel";
 import { GateBanner } from "@/components/criteria/GateBanner";
 import { CalibrationMatrix } from "@/components/criteria/CalibrationMatrix";
@@ -253,9 +254,9 @@ export default function CalibrationPage() {
         <div className="brand-mark"><span className="brand-symbol">◈</span><span>Code.Presso</span></div>
         <div className="workspace-label">RECRUITING CONSOLE</div>
         <nav className="workflow-nav" aria-label="채용 워크플로우">
-          <div className="nav-item active"><span className="nav-index">01</span><span>기준 교정</span><span className="nav-state">진행 중</span></div>
-          <div className={`nav-item ${officialUnlocked ? "active" : "locked"}`}><span className="nav-index">02</span><span>지원서 검토</span><span className="nav-state">{officialUnlocked ? "사용 가능" : "잠김"}</span></div>
-          <div className={`nav-item ${officialUnlocked ? "active" : "locked"}`}><span className="nav-index">03</span><span>현업 핸드오프</span><span className="nav-state">{officialUnlocked ? "사용 가능" : "잠김"}</span></div>
+          <Link className="nav-item active" href="/calibration" aria-current="page"><span className="nav-index">01</span><span>기준 교정</span><span className="nav-state">진행 중</span></Link>
+          {officialUnlocked ? <Link className="nav-item active" href="/applications"><span className="nav-index">02</span><span>지원서 검토</span><span className="nav-state">사용 가능</span></Link> : <button className="nav-item locked" type="button" disabled><span className="nav-index">02</span><span>지원서 검토</span><span className="nav-state">잠김</span></button>}
+          {officialUnlocked ? <Link className="nav-item active" href={`/handoff?application_id=APPS-2&criteria_version_id=${encodeURIComponent(versionId)}`}><span className="nav-index">03</span><span>현업 핸드오프</span><span className="nav-state">사용 가능</span></Link> : <button className="nav-item locked" type="button" disabled><span className="nav-index">03</span><span>현업 핸드오프</span><span className="nav-state">잠김</span></button>}
         </nav>
         <div className="sidebar-footer"><span className="avatar">H</span><span><strong>민지</strong><small>채용 담당자 · HR</small></span></div>
       </aside>
@@ -276,7 +277,7 @@ export default function CalibrationPage() {
           {reviewLoading ? <div className="live-message" role="status">교정 표본을 불러오는 중…</div> : reviewLoadError ? <div className="invalidated-message" role="alert"><strong>교정 표본을 불러오지 못했습니다</strong><span>{reviewLoadError}</span></div> : <CalibrationMatrix matrix={reviewMatrix} currentRole={currentRole} onRoleChange={setCurrentRole} onSave={handleReviewSave} onResolve={handleResolve} />}
           {reviewError && <div className="invalidated-message" role="alert"><strong>작업을 완료하지 못했습니다</strong><span>{reviewError}</span></div>}
           <section className="approval-panel" aria-label="기준 버전 승인">
-            {versionStatus === "APPROVED" ? <div className="live-message" role="status">✓ 승인 완료 · {versionId} · 공식 핸드오프 잠금 해제</div> : versionStatus === "ARCHIVED" ? <div className="live-message" role="status">보관된 기준 · {versionId} · 공식 핸드오프 잠김</div> : <><button className="button primary" type="button" onClick={handleApprove} disabled={!canApprove}>기준 승인</button><span className="approval-help">{canApprove ? "HR이 승인하면 공식 핸드오프 생성이 열립니다." : `승인 조건 · 열린 충돌 ${reviewMatrix.open_conflict_count}건 · 양쪽 검토 대기 ${pendingReviewCount}건`}</span></>}
+            {versionStatus === "APPROVED" ? <><div className="live-message" role="status">✓ 승인 완료 · {versionId} · 공식 핸드오프 잠금 해제</div><Link className="button primary next-step-button" href="/applications">다음: 지원서 검토 <span aria-hidden="true">→</span></Link></> : versionStatus === "ARCHIVED" ? <div className="live-message" role="status">보관된 기준 · {versionId} · 공식 핸드오프 잠김</div> : <><button className="button primary" type="button" onClick={handleApprove} disabled={!canApprove}>기준 승인</button><span className="approval-help">{canApprove ? "HR이 승인하면 공식 핸드오프 생성이 열립니다." : `승인 조건 · 열린 충돌 ${reviewMatrix.open_conflict_count}건 · 양쪽 검토 대기 ${pendingReviewCount}건`}</span></>}
           </section>
           <section className="preview-panel" aria-labelledby="preview-heading">
             <div className="panel-heading"><div><p className="eyebrow">EXPLORATION PREVIEW</p><h2 id="preview-heading">지원서 매핑 미리보기</h2></div><span className="preview-count">탐색용 1건</span></div>

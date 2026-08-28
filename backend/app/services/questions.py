@@ -124,6 +124,7 @@ def build_generation_prompt(payload: dict[str, Any], bank: list[dict[str, str]])
 - 카드의 기준과 저장된 원문 근거로만 구체적이고 검증 가능한 비유도 질문을 만드세요.
 - 후보마다 criterion_item_ids와 evidence_ids를 카드 입력의 실제 id로 연결하세요.
 - 원 질문(original_question), 현재 질문(current_question), 이유(reason), 질문 유형(question_type: BEI/SJT/KNOWLEDGE)을 포함하세요.
+- original_question과 current_question은 최소 12자 이상의 구체적인 완결형 한국어 질문으로 작성하고, `?`, `요`, `까요`, `나요`, `주세요` 중 하나로 끝내세요. Markdown과 따옴표는 붙이지 마세요.
 - 보호 특성·사생활·자동 합격/탈락 판단을 묻지 마세요. 질문 수는 고정하지 않습니다.
 - 응답 형식: {{"questions":[{{"original_question":"...","current_question":"...","reason":"...","criterion_item_ids":["..."],"evidence_ids":["..."],"question_type":"BEI"}}]}}
 """
@@ -144,7 +145,6 @@ def request_model(prompt: str) -> Any:
             {"role": "system", "content": "JSON 배열만 반환합니다."},
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.2,
         "response_format": {"type": "json_object"},
     }).encode("utf-8")
     try:
@@ -154,6 +154,21 @@ def request_model(prompt: str) -> Any:
         }, method="POST")
         with url_request.urlopen(request, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))
+    except url_error.HTTPError as exc:
+        upstream_message = ""
+        try:
+            raw_body = exc.read().decode("utf-8")
+            parsed_body = json.loads(raw_body)
+            if isinstance(parsed_body, dict):
+                error_body = parsed_body.get("error")
+                if isinstance(error_body, dict):
+                    upstream_message = str(error_body.get("message") or error_body.get("type") or "")
+                elif isinstance(parsed_body.get("detail"), str):
+                    upstream_message = parsed_body["detail"]
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            pass
+        suffix = f": {upstream_message[:240]}" if upstream_message else ""
+        raise QuestionGenerationError(f"질문 생성 모델 요청이 거부되었습니다 (HTTP {exc.code}){suffix}", upstream=True) from exc
     except (url_error.URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise QuestionGenerationError("질문 생성 모델을 사용할 수 없습니다", upstream=True) from exc
 
@@ -192,11 +207,16 @@ def _response_content(response: Any) -> Any:
     raise QuestionGenerationError("모델 응답에 질문 후보 배열이 없습니다", upstream=True)
 
 
+def _clean_question(value: str) -> str:
+    """모델이 붙인 Markdown/인용부호만 제거하고 질문 문장은 보존한다."""
+    return value.strip().strip("`*_\"'“”‘’")
+
+
 def _normalize_candidate(raw: dict[str, Any], payload: dict[str, Any], created_at: str) -> QuestionCandidate:
     if not isinstance(raw, dict):
         raise QuestionGenerationError("질문 후보 형식이 올바르지 않습니다", upstream=True)
-    original = str(raw.get("original_question") or raw.get("question") or "").strip()
-    current = str(raw.get("current_question") or raw.get("question") or original).strip()
+    original = _clean_question(str(raw.get("original_question") or raw.get("question") or ""))
+    current = _clean_question(str(raw.get("current_question") or raw.get("question") or original))
     criteria_ids = raw.get("criterion_item_ids") or raw.get("criteria_ids") or raw.get("linked_criteria_ids") or []
     evidence_ids = raw.get("evidence_ids") or raw.get("linked_evidence_ids") or []
     if raw.get("criterion_item_id"):
@@ -232,7 +252,7 @@ def validate_candidate(candidate: QuestionCandidate, payload: dict[str, Any], ex
         raise ValueError("자동 합격·탈락 판단을 유도하는 질문은 저장할 수 없습니다")
     if any(pattern in question for pattern in LEADING_PATTERNS):
         raise ValueError("유도 질문은 저장할 수 없습니다")
-    question_like = "?" in question or any(question.endswith(suffix) for suffix in ("요", "까요", "나요", "주세요", "말씀해 주세요."))
+    question_like = bool(re.search(r"(?:[?？]|요|까요|나요|습니까|ㅂ니까|세요|십시오|주세요)[.!。！？\"”’'`]*$", question))
     if len(question) < 12 or not question_like:
         raise ValueError("질문은 구체적이고 검증 가능한 문장이어야 합니다")
     criteria_section = payload.get("criteria", {})

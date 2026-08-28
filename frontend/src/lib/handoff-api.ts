@@ -90,7 +90,7 @@ export type AuditEvent = {
 };
 
 export class HandoffApiError extends ApiRequestError {
-  constructor(status: number) {
+  constructor(status: number, public readonly detail?: unknown) {
     super(status);
     this.name = "HandoffApiError";
   }
@@ -98,7 +98,16 @@ export class HandoffApiError extends ApiRequestError {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
-  if (!response.ok) throw new HandoffApiError(response.status);
+  if (!response.ok) {
+    let detail: unknown;
+    try {
+      const body = await response.json() as { detail?: unknown };
+      detail = body.detail;
+    } catch {
+      // Keep the status available even when the server returned no JSON body.
+    }
+    throw new HandoffApiError(response.status, detail);
+  }
   return response.json() as Promise<T>;
 }
 

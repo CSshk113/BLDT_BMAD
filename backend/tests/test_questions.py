@@ -214,6 +214,7 @@ def test_model_request_uses_fixed_model_and_server_credentials(monkeypatch: pyte
     assert captured["request"].get_header("Authorization") == "Bearer server-secret"
     body = json.loads(captured["request"].data)
     assert body["model"] == "gpt-5.6-luna"
+    assert "temperature" not in body
     assert body["response_format"] == {"type": "json_object"}
 
 

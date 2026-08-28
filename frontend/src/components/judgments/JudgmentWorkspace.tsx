@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,6 +75,10 @@ export function JudgmentWorkspace({ versionId, applicationId }: { versionId: str
   if (error && !matrix) return <Alert variant="destructive"><AlertTitle>공식 판단을 열 수 없습니다</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>;
   if (!matrix) return <p className="rounded-md border p-4 text-sm text-muted-foreground">판단 로그를 불러오는 중입니다…</p>;
   const verdictOptions = role === "HR" ? HR_VERDICTS : HM_VERDICTS;
+  // The handoff API gates on complete HR/HM Item-level official logs. The
+  // Document-level verdict is optional while reviewers enter per-criterion
+  // evidence, so it must not hide the next-step navigation here.
+  const canContinue = Boolean(matrix.rows.length > 0 && matrix.rows.every((row) => row.hr_review && row.hm_review));
   return <section className="grid gap-4" aria-label="HR과 HM 공식 판단 로그">
     {message && <Alert><AlertTitle>저장 완료</AlertTitle><AlertDescription>{message}</AlertDescription></Alert>}
     {error && <Alert variant="destructive"><AlertTitle>입력 확인</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
@@ -93,5 +98,6 @@ export function JudgmentWorkspace({ versionId, applicationId }: { versionId: str
       </CardContent></Card>
     </div>
     <Card><CardHeader><CardTitle>HR·HM 의견 비교</CardTitle><CardDescription>대표 결론을 자동 선택하지 않고 양쪽 근거를 함께 보존합니다.</CardDescription></CardHeader><CardContent className="grid gap-3">{selectedRow && <><p className="text-xs text-muted-foreground">차이: {selectedRow.differences.length ? selectedRow.differences.join(" · ") : "없음"}</p><div className="grid gap-3 md:grid-cols-2">{(["HR", "HM"] as ReviewerRole[]).map((reviewer) => { const review = reviewer === "HR" ? selectedRow.hr_review : selectedRow.hm_review; return <div className="rounded-md border p-4" key={reviewer}><p className="font-medium">{reviewer} · {review ? STATUS_LABELS[review.status] : "미입력"}</p><p className="mt-2 text-sm">{review?.reason_text ?? "아직 판단 로그가 없습니다."}</p>{review?.citation && <blockquote className="mt-2 border-l-2 pl-3 text-sm">“{review.citation}”</blockquote>}<p className="mt-2 text-xs text-muted-foreground">{review?.source_location ?? "근거 위치 없음"}</p>{review?.edit_history?.length ? <p className="mt-2 text-xs text-muted-foreground">수정 이력 {review.edit_history.length}건 · 감사 기록 보존됨</p> : null}</div>; })}</div></>}</CardContent></Card>
+    <div className="flex justify-end">{canContinue ? <Link className="inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground" href={`/handoff?application_id=${encodeURIComponent(applicationId)}&criteria_version_id=${encodeURIComponent(versionId)}`}>다음: 핸드오프 카드 <span aria-hidden="true">→</span></Link> : <span className="text-xs text-muted-foreground">HR·HM의 모든 기준 판단을 저장하면 핸드오프 단계가 열립니다.</span>}</div>
   </section>;
 }

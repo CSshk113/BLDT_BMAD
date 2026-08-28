@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { uploadApplication, type ApplicationDetail } from "@/lib/applications-api";
+import { ApplicationApiError, uploadApplication, type ApplicationDetail } from "@/lib/applications-api";
 
 type UploadFormProps = { onUploaded: (application: ApplicationDetail) => void };
 
@@ -29,8 +29,16 @@ export function UploadForm({ onUploaded }: UploadFormProps) {
       onUploaded(await uploadApplication({ file, candidateToken, positionName, criteriaVersionId }));
       setFile(null);
       event.currentTarget.reset();
-    } catch {
-      setError("업로드 또는 문서 처리에 실패했습니다. 처리 목록의 실패 단계와 사유를 확인하세요.");
+    } catch (caught) {
+      if (caught instanceof ApplicationApiError && caught.status === 415) {
+        setError("PDF 파일만 업로드할 수 있습니다.");
+      } else if (caught instanceof ApplicationApiError && caught.status === 413) {
+        setError("PDF 파일은 10MB 이하만 업로드할 수 있습니다.");
+      } else if (caught instanceof ApplicationApiError) {
+        setError("PDF 업로드 요청에 실패했습니다. 서버 연결과 입력값을 확인하세요.");
+      } else {
+        setError("PDF 업로드 서버에 연결하지 못했습니다. 백엔드 상태를 확인하세요.");
+      }
     } finally {
       setSaving(false);
     }

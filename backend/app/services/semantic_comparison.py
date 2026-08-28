@@ -66,7 +66,6 @@ def request_model(prompt: str) -> object:
             {"role": "system", "content": "JSON 객체만 반환합니다."},
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0,
         "response_format": {"type": "json_object"},
     }).encode("utf-8")
     try:

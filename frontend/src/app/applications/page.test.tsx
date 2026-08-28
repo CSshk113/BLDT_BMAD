@@ -84,7 +84,7 @@ describe("applications page", () => {
     fireEvent.click(startButton);
 
     await waitFor(() => expect(reprocessApplication).toHaveBeenCalledWith("APPS-179"));
-    await waitFor(() => expect(listApplications.mock.calls.length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(vi.mocked(listApplications).mock.calls.length).toBeGreaterThanOrEqual(2));
     await waitFor(() => expect(screen.queryByRole("button", { name: "처리 시작" })).not.toBeInTheDocument());
     expect(screen.getByRole("link", { name: "원문 근거 검토" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "다시 처리" })).not.toBeInTheDocument();

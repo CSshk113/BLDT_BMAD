@@ -16,12 +16,14 @@ import {
   saveFinalDecision,
   saveInterviewVerification,
   selectQuestionCandidate,
+  HandoffApiError,
   type DecisionValue,
   type HandoffCard,
   type QuestionCandidate,
 } from "@/lib/handoff-api";
 
 type Judgment = {
+  id?: string;
   status?: string;
   reason_text?: string | null;
   citation?: string | null;
@@ -35,6 +37,27 @@ type JudgmentRow = {
   hr_review?: Judgment | null;
   hm_review?: Judgment | null;
 };
+
+const REVIEW_STATUS_LABELS: Record<string, string> = {
+  FULFILLED: "충족",
+  PARTIALLY_FULFILLED: "부분 충족",
+  UNFULFILLED: "미충족",
+  UNVERIFIABLE: "확인 불가",
+};
+
+function judgmentStatus(value?: string) {
+  return value ? REVIEW_STATUS_LABELS[value] ?? value : "미입력";
+}
+
+function questionErrorMessage(error: unknown) {
+  if (!(error instanceof HandoffApiError)) return "질문 후보를 만들 수 없습니다. 서버 연결 상태를 확인하세요.";
+  const detail = error.detail;
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object" && "message" in detail && typeof detail.message === "string") return detail.message;
+  if (error.status === 409) return "핸드오프 카드가 READY 상태인지 확인하세요.";
+  if (error.status === 502 || error.status === 503) return "질문 생성 모델 호출에 실패했습니다. 백엔드의 API 키·모델·Base URL 설정을 확인하세요.";
+  return `질문 후보 생성에 실패했습니다. (HTTP ${error.status})`;
+}
 
 export default function HandoffPage() {
   const [applicationId, setApplicationId] = useState("APPS-2");
@@ -108,8 +131,8 @@ export default function HandoffPage() {
     try {
       await generateQuestionCandidates(card.id, role);
       await refreshQuestions(card.id);
-    } catch {
-      setError("질문 후보를 만들 수 없습니다. 승인된 READY 카드와 서버 LLM 설정을 확인한 뒤 다시 시도하세요.");
+    } catch (caught) {
+      setError(questionErrorMessage(caught));
     } finally {
       setQuestionBusy(false);
     }
@@ -245,7 +268,7 @@ export default function HandoffPage() {
         </CardContent>
       </Card>
 
-      {error && <Alert variant="destructive"><AlertTitle>카드를 만들 수 없습니다</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
+      {error && <Alert variant="destructive"><AlertTitle>{card ? "질문 후보를 만들 수 없습니다" : "카드를 만들 수 없습니다"}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
 
       {card && (
         <section className="grid gap-4" aria-label="핸드오프 카드">
@@ -286,23 +309,39 @@ export default function HandoffPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>HR·HM 판단 차이</CardTitle>
-              <CardDescription>대표 결론 없이 양쪽 판단을 보존합니다.</CardDescription>
+              <CardTitle>HR·HM 판단 비교</CardTitle>
+              <CardDescription>원문 JSON 대신 상태·사유·참조 근거를 읽기 쉬운 형태로 보존합니다.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3">
-              <div className="rounded-md border p-3 text-sm">
-                <p className="font-medium">구조화된 차이</p>
-                {card.payload.differences.length ? <ul className="mt-2 list-disc pl-5">{card.payload.differences.map((item) => <li key={item.criterion_item_id}>{item.criterion_item_id}: {item.fields.join(" · ")}</li>)}</ul> : <p className="mt-2 text-muted-foreground">차이가 없습니다.</p>}
+              <div className="rounded-lg border bg-muted/20 p-4 text-sm">
+                <p className="font-medium">의견 차이 요약</p>
+                {card.payload.differences.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {card.payload.differences.map((item) => {
+                      const criterion = judgmentRows.find((row) => row.criterion_item_id === item.criterion_item_id)?.criterion_text ?? item.criterion_item_id;
+                      return <Badge variant="outline" key={item.criterion_item_id}>{criterion} · {item.fields.join(" · ")}</Badge>;
+                    })}
+                  </div>
+                ) : <p className="mt-2 text-muted-foreground">차이가 없습니다.</p>}
               </div>
               {judgmentRows.map((row) => (
-                <div className="rounded-md border p-3 text-sm" key={row.criterion_item_id}>
-                  <p className="font-medium">{row.criterion_text}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{row.differences.length ? `차이: ${row.differences.join(" · ")}` : "판단 일치"}</p>
+                <div className="rounded-lg border p-4" key={row.criterion_item_id}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-medium">{row.criterion_text}</p>
+                    <Badge variant={row.differences.length ? "destructive" : "secondary"}>{row.differences.length ? "의견 차이" : "판단 일치"}</Badge>
+                  </div>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
                     {[{ label: "HR 스크리닝", review: row.hr_review }, { label: "HM 서류 심사", review: row.hm_review }].map(({ label, review }) => (
-                      <div className="rounded-md bg-muted/40 p-3" key={label}>
-                        <p className="font-medium">{label}</p>
-                        <pre className="mt-2 whitespace-pre-wrap text-xs">{JSON.stringify(review ?? "미입력", null, 2)}</pre>
+                      <div className="rounded-md bg-muted/30 p-4" key={label}>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium">{label}</p>
+                          <Badge variant="outline">{judgmentStatus(review?.status)}</Badge>
+                        </div>
+                        <div className="mt-3 grid gap-2 text-sm">
+                          <div><p className="text-xs text-muted-foreground">판단 사유</p><p className="mt-1 leading-6">{review?.reason_text ?? "미입력"}</p></div>
+                          <div><p className="text-xs text-muted-foreground">참조 인용구</p><p className="mt-1 border-l-2 pl-3 leading-6">{review?.citation ?? "확인 불가"}</p></div>
+                          <div><p className="text-xs text-muted-foreground">원문 위치</p><p className="mt-1">{review?.source_location ?? "확인 불가"}</p></div>
+                        </div>
                       </div>
                     ))}
                   </div>
