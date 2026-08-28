@@ -25,10 +25,11 @@ export function UploadForm({ onUploaded }: UploadFormProps) {
     if (!file.name.toLowerCase().endsWith(".pdf")) return setError("PDF 파일만 업로드할 수 있습니다.");
     setError("");
     setSaving(true);
+    const form = event.currentTarget;
     try {
       onUploaded(await uploadApplication({ file, candidateToken, positionName, criteriaVersionId }));
       setFile(null);
-      event.currentTarget.reset();
+      form.reset();
     } catch (caught) {
       if (caught instanceof ApplicationApiError && caught.status === 415) {
         setError("PDF 파일만 업로드할 수 있습니다.");
@@ -57,7 +58,7 @@ export function UploadForm({ onUploaded }: UploadFormProps) {
           <div className="grid gap-2"><Label htmlFor="candidate-token">후보 식별자</Label><Input id="candidate-token" value={candidateToken} onChange={(event) => setCandidateToken(event.target.value)} /></div>
           <div className="grid gap-2"><Label htmlFor="position-name">포지션</Label><Input id="position-name" value={positionName} onChange={(event) => setPositionName(event.target.value)} /></div>
           <div className="grid gap-2"><Label htmlFor="criteria-version-id">기준 버전 ID</Label><Input id="criteria-version-id" value={criteriaVersionId} onChange={(event) => setCriteriaVersionId(event.target.value)} /></div>
-          <div className="flex items-center justify-between gap-3"><span className="text-xs text-muted-foreground">PDF → RECEIVED → PARSING → MAPPING → COMPLETED</span><Button type="submit" disabled={saving}>{saving ? "처리 중…" : "PDF 접수 및 처리"}</Button></div>
+          <div className="flex items-center justify-between gap-3"><span className="text-xs text-muted-foreground">PDF → 접수 → 파싱 → 기준별 매핑 → 처리 완료</span><Button type="submit" disabled={saving}>{saving ? "처리 중…" : "PDF 접수 및 처리"}</Button></div>
         </form>
       </CardContent>
     </Card>

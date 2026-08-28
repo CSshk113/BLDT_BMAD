@@ -141,6 +141,31 @@ def _query_mapping_rows(connection, application_id: str, criteria_version_id: st
     ).fetchall()
 
 
+def create_mappings_for_run(connection, *, application, version, run_id: str, artifact_id: str, markdown: str):
+    """Create criterion mappings inside the document-processing transaction."""
+    connection.execute(
+        "UPDATE mapping_results SET mapping_status = 'INVALIDATED' WHERE application_id = ? AND criteria_version_id = ? AND mapping_status = 'COMPLETED'",
+        (application["id"], version.id),
+    )
+    for item in version.items:
+        evidence = _match_evidence(markdown, item.criterion_text)
+        connection.execute(
+            """
+            INSERT INTO mapping_results
+            (id, criteria_version_id, application_id, processing_run_id, source_artifact_id,
+             applicant_label, criterion_item_id, citation, location, location_kind,
+             evidence_status, mapping_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED')
+            """,
+            (
+                f"mapping-{uuid.uuid4().hex[:12]}", version.id, application["id"], run_id, artifact_id,
+                f"{application['candidate_token']} · {application['id']}", item.id, evidence.citation,
+                evidence.location, evidence.location_kind, evidence.status,
+            ),
+        )
+    return _query_mapping_rows(connection, application["id"], version.id, run_id)
+
+
 def create_mappings(application_id: str, criteria_version_id: str | None = None) -> MappingResponse:
     ensure_application_catalog()
     version_id = criteria_version_id or ""
@@ -175,28 +200,15 @@ def create_mappings(application_id: str, criteria_version_id: str | None = None)
             raise MappingNotReadyError("정규화 Markdown을 읽을 수 없습니다") from error
         if not markdown.strip():
             raise MappingNotReadyError("정규화 Markdown이 비어 있습니다")
-        connection.execute(
-            "UPDATE mapping_results SET mapping_status = 'INVALIDATED' WHERE application_id = ? AND criteria_version_id = ? AND mapping_status = 'COMPLETED'",
-            (application_id, version_id),
+        rows = create_mappings_for_run(
+            connection,
+            application=application,
+            version=version,
+            run_id=run["id"],
+            artifact_id=artifact["id"],
+            markdown=markdown,
         )
-        for item in version.items:
-            evidence = _match_evidence(markdown, item.criterion_text)
-            connection.execute(
-                """
-                INSERT INTO mapping_results
-                (id, criteria_version_id, application_id, processing_run_id, source_artifact_id,
-                 applicant_label, criterion_item_id, citation, location, location_kind,
-                 evidence_status, mapping_status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED')
-                """,
-                (
-                    f"mapping-{uuid.uuid4().hex[:12]}", version_id, application_id, run["id"], artifact["id"],
-                    f"{application['candidate_token']} · {application_id}", item.id, evidence.citation,
-                    evidence.location, evidence.location_kind, evidence.status,
-                ),
-            )
         connection.commit()
-        rows = _query_mapping_rows(connection, application_id, version_id, run["id"])
     return _response_from_rows(rows, application_id=application_id, criteria_version_id=version_id, criteria_status=version.status, run_id=run["id"], artifact_id=artifact["id"])
 
 

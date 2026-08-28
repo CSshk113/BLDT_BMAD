@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ApplicationSummary, ProcessingStatus } from "@/lib/applications-api";
 
-const statusLabel: Record<ProcessingStatus, string> = { RECEIVED: "접수됨", PARSING: "파싱 중", MAPPING: "변환·정규화 중", COMPLETED: "처리 완료", FAILED: "처리 실패" };
+const statusLabel: Record<ProcessingStatus, string> = { RECEIVED: "접수됨", PARSING: "파싱 중", MAPPING: "기준별 매핑 중", COMPLETED: "매핑 포함 처리 완료", FAILED: "처리 실패" };
 
 type ProcessingListProps = { items: ApplicationSummary[]; selectedId: string; onSelect: (id: string) => void };
 

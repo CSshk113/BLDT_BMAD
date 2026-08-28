@@ -388,8 +388,25 @@ def process_application(application_id: str, run_id: str, parser: DocumentParser
             _write_artifact(connection, application_id=application_id, run_id=run_id, artifact_type=ArtifactType.LLAMAPARSE_MARKDOWN, path=markdown_path, original_filename=f"{original['original_filename']}.llamaparse.md", mime_type="text/markdown")
             failure_step = "MAPPING"
             _set_run_status(connection, run_id, ProcessingStatus.MAPPING, step="MAPPING")
-            normalized_path.write_text(normalize_markdown(parsed.markdown), encoding="utf-8")
+            normalized_markdown = normalize_markdown(parsed.markdown)
+            normalized_path.write_text(normalized_markdown, encoding="utf-8")
             _write_artifact(connection, application_id=application_id, run_id=run_id, artifact_type=ArtifactType.NORMALIZED_MARKDOWN, path=normalized_path, original_filename=f"{original['original_filename']}.normalized.md", mime_type="text/markdown")
+            normalized_artifact = connection.execute(
+                "SELECT id FROM application_artifacts WHERE application_id = ? AND processing_run_id = ? AND artifact_type = 'NORMALIZED_MARKDOWN' ORDER BY created_at DESC LIMIT 1",
+                (application_id, run_id),
+            ).fetchone()
+            if normalized_artifact is None:
+                raise ValueError("정규화 Markdown 산출물 등록에 실패했습니다")
+            from backend.app.services import mapping
+
+            mapping.create_mappings_for_run(
+                connection,
+                application=application,
+                version=get_version(application["criteria_version_id"]),
+                run_id=run_id,
+                artifact_id=normalized_artifact["id"],
+                markdown=normalized_markdown,
+            )
             _set_run_status(connection, run_id, ProcessingStatus.COMPLETED, step="COMPLETED")
             _promote_run_artifacts(connection, application_id, run_id)
         except Exception as error:

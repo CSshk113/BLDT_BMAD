@@ -66,7 +66,7 @@ describe("applications page", () => {
 
     await waitFor(() => expect(screen.getAllByText("후보068 · B2B 영업 매니저 (5년 이상)").length).toBeGreaterThan(0));
     expect(screen.getByText("원장 178건")).toBeInTheDocument();
-    expect(screen.getByText("처리 완료")).toBeInTheDocument();
+    expect(screen.getByText("매핑 포함 처리 완료")).toBeInTheDocument();
   });
 
   it("starts processing an unprocessed sample with its current original PDF", async () => {
