@@ -10,7 +10,6 @@ import {
   createDraft,
   fallbackReviewMatrix,
   loadCriteria,
-  loadPreview,
   loadReviewMatrix,
   isNetworkError,
   approveCriteria,
@@ -26,7 +25,6 @@ import {
   type ConflictResolution,
   type CriteriaVersionStatus,
   type ReviewerRole,
-  type ApiPreview,
 } from "@/lib/criteria-api";
 
 const initialItems: CriteriaItem[] = [
@@ -42,11 +40,8 @@ export default function CalibrationPage() {
   const [editing, setEditing] = useState(false);
   const [invalidated, setInvalidated] = useState(false);
   const [savedMessage, setSavedMessage] = useState("");
-  const [previewStatus, setPreviewStatus] = useState<"COMPLETED" | "INVALIDATED">("COMPLETED");
   const [currentRole, setCurrentRole] = useState<ReviewerRole>("HR");
   const [reviewMatrix, setReviewMatrix] = useState<ReviewMatrix>(() => fallbackReviewMatrix("cv-b2b-sales-v4", initialItems));
-  const [previewMappings, setPreviewMappings] = useState<ApiPreview["mappings"]>([]);
-  const [previewOpen, setPreviewOpen] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(true);
   const [reviewError, setReviewError] = useState("");
   const [reviewLoadError, setReviewLoadError] = useState("");
@@ -56,22 +51,14 @@ export default function CalibrationPage() {
     setReviewLoading(true);
     setReviewError("");
     setReviewLoadError("");
-    setPreviewOpen(false);
-    setPreviewMappings([]);
-    Promise.all([loadCriteria(versionId), loadPreview(versionId)])
-      .then(async ([criteriaResult, preview]) => {
+    loadCriteria(versionId)
+      .then(async (criteriaResult) => {
         if (!active) return;
         setItems(criteriaResult.items);
         setVersionStatus(criteriaResult.version.status);
-        setPreviewMappings(preview.mappings);
         const matrix = await loadReviewMatrix(versionId, criteriaResult.items);
         if (!active) return;
         setReviewMatrix(matrix);
-        const mappingStatus = preview.mappings[0]?.mapping_status;
-        if (mappingStatus === "INVALIDATED") {
-          setPreviewStatus("INVALIDATED");
-          setInvalidated(true);
-        }
       })
       .catch((error) => {
         // The static demo state remains usable when the API is not running yet.
@@ -98,12 +85,9 @@ export default function CalibrationPage() {
       setItems(toUiItems(result.version));
       setVersionStatus(result.version.status);
       setInvalidated(result.rerun_required);
-      setPreviewStatus(result.rerun_required ? "INVALIDATED" : "COMPLETED");
-      setPreviewOpen(false);
       setSavedMessage(`저장 완료 · 기존 매핑 ${result.invalidated_mapping_count}건을 ${result.rerun_required ? "무효화했습니다" : "유지했습니다"}.`);
     } catch {
       setInvalidated(true);
-      setPreviewStatus("INVALIDATED");
       setSavedMessage("로컬 데모 저장 완료 · 기존 매핑 1건을 무효화했습니다. 재실행이 필요합니다.");
     }
   };
@@ -118,9 +102,6 @@ export default function CalibrationPage() {
       setVersionId(`cv-b2b-sales-v4-draft-${Date.now().toString().slice(-4)}`);
     }
     setInvalidated(false);
-    setPreviewStatus("COMPLETED");
-    setPreviewOpen(false);
-    setPreviewMappings([]);
     setSavedMessage("새 Draft 기준 버전을 만들었습니다. HM 승인 전까지 탐색용으로만 사용할 수 있습니다.");
   };
 
@@ -278,12 +259,6 @@ export default function CalibrationPage() {
           {reviewError && <div className="invalidated-message" role="alert"><strong>작업을 완료하지 못했습니다</strong><span>{reviewError}</span></div>}
           <section className="approval-panel" aria-label="기준 버전 승인">
             {versionStatus === "APPROVED" ? <><div className="live-message" role="status">✓ 승인 완료 · {versionId} · 공식 핸드오프 잠금 해제</div><Link className="button primary next-step-button" href="/applications">다음: 지원서 검토 <span aria-hidden="true">→</span></Link></> : versionStatus === "ARCHIVED" ? <div className="live-message" role="status">보관된 기준 · {versionId} · 공식 핸드오프 잠김</div> : <><button className="button primary" type="button" onClick={handleApprove} disabled={!canApprove}>기준 승인</button><span className="approval-help">{canApprove ? "HR이 승인하면 공식 핸드오프 생성이 열립니다." : `승인 조건 · 열린 충돌 ${reviewMatrix.open_conflict_count}건 · 양쪽 검토 대기 ${pendingReviewCount}건`}</span></>}
-          </section>
-          <section className="preview-panel" aria-labelledby="preview-heading">
-            <div className="panel-heading"><div><p className="eyebrow">EXPLORATION PREVIEW</p><h2 id="preview-heading">지원서 매핑 미리보기</h2></div><span className="preview-count">탐색용 1건</span></div>
-            <div className="preview-row"><div className="applicant"><span className="document-icon">▤</span><span><strong>대표 지원자 · APPS-2</strong><small>원문 처리 완료 · 기준별 근거 확인 가능</small></span></div><span className="evidence-chip">근거 {previewMappings.length}건</span><span className={`preview-label ${previewStatus === "INVALIDATED" ? "invalidated-label" : ""}`}>{previewStatus === "INVALIDATED" ? "매핑 무효" : "미리보기"}</span><button className="text-button" type="button" aria-expanded={previewOpen} onClick={() => setPreviewOpen((open) => !open)}>{previewOpen ? "결과 닫기" : "결과 열기"} <span aria-hidden="true">{previewOpen ? "↑" : "→"}</span></button></div>
-            {previewOpen && <div className="grid gap-3 border-t border-[var(--line)] pt-4" aria-label="지원서 매핑 미리보기 결과"><p className="text-sm font-semibold">미리보기 결과</p>{previewMappings.length ? previewMappings.map((mapping) => { const criterion = items.find((item) => item.id === mapping.criterion_item_id); return <article key={`${mapping.application_id}-${mapping.criterion_item_id}`} className="grid gap-2 rounded-md border p-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><strong>{criterion?.text ?? mapping.criterion_item_id}</strong><span className="preview-label">{mapping.evidence_status}</span></div>{mapping.citation ? <blockquote className="border-l-2 pl-3 leading-6">“{mapping.citation}”</blockquote> : <p className="text-muted-foreground">원문에서 확인 가능한 근거가 없습니다.</p>}<p className="text-xs text-muted-foreground">{mapping.location}</p></article>; }) : <p className="text-sm text-muted-foreground">표시할 미리보기 결과가 없습니다.</p>}</div>}
-            <div className="preview-note">ⓘ {previewStatus === "INVALIDATED" ? "기준 문구가 변경되어 기존 매핑은 무효화되었습니다. 재실행 후 다시 확인하세요." : "Draft 결과는 기준 합의 전 탐색용입니다. 공식 판단이나 핸드오프 카드에는 포함되지 않습니다."}</div>
           </section>
         </div>
       </div>

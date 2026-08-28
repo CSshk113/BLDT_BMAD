@@ -143,11 +143,6 @@ export function CalibrationMatrix({ matrix, currentRole, onRoleChange, onSave, o
               <span className="font-medium">{sample.application_id} · {sample.candidate_token}</span>
               <span className="text-sm text-muted-foreground">{sample.position_name} · 출처 {sample.source}</span>
             </div>
-            <div className="grid gap-1">
-              <span className="text-xs font-medium text-muted-foreground">대표 원문 문맥</span>
-              <blockquote className="border-l-2 pl-3 text-sm leading-6">{sample.excerpt || "정보 없음"}</blockquote>
-              <span className="text-xs text-muted-foreground">위치 · {sample.source_location || "정보 없음"}</span>
-            </div>
           </div>
         </CardHeader>
         <CardContent className="grid gap-4 pt-4">

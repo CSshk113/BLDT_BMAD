@@ -22,10 +22,7 @@ describe("calibration page", () => {
     expect(screen.getByRole("button", { name: /공식 핸드오프 잠김/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "기준 승인" })).toBeDisabled();
     expect(screen.getByText(/승인 조건 · 열린 충돌/)).toBeInTheDocument();
-    expect(screen.getByText("지원서 매핑 미리보기")).toBeInTheDocument();
-    expect(await screen.findByText("APPS-2 · 후보081")).toBeInTheDocument();
-    expect(screen.getByText("B2B 영업 매니저 5년 이상 ver.4 · 출처 원티드")).toBeInTheDocument();
-    expect(screen.getByText(/신규 고객 30개사를 직접 발굴/)).toBeInTheDocument();
+    expect(screen.queryByText("지원서 매핑 미리보기")).not.toBeInTheDocument();
   });
 
   it("invalidates the preview mapping after a changed criterion is saved", async () => {
@@ -104,7 +101,7 @@ describe("calibration page", () => {
 
     expect(await screen.findByText("열린 충돌 1건")).toBeInTheDocument();
     expect(screen.getByText("서버 지원자 포지션 · 출처 원티드")).toBeInTheDocument();
-    expect(screen.getByText("API가 반환한 대표 원문")).toBeInTheDocument();
+    expect(screen.queryByText("API가 반환한 대표 원문")).not.toBeInTheDocument();
     expect(screen.getAllByText("HR 근거").length).toBeGreaterThan(0);
     expect(screen.getAllByText("HM 근거").length).toBeGreaterThan(0);
     expect(screen.getByText("차이: 상태")).toBeInTheDocument();
