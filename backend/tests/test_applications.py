@@ -132,6 +132,35 @@ def test_failed_reprocessing_preserves_last_successful_markdown(client: TestClie
     assert Path(current["storage_path"]).read_text(encoding="utf-8") == previous_content["NORMALIZED_MARKDOWN"]
 
 
+def test_existing_sample_original_pdf_starts_a_new_run_without_creating_an_upload(client: TestClient):
+    before = client.get("/api/applications/APPS-179")
+
+    assert before.status_code == 200
+    initial = before.json()
+    assert initial["source_type"] == "SAMPLE"
+    assert initial["processing_status"] is None
+    assert any(artifact["artifact_type"] == "ORIGINAL_PDF" and artifact["is_current"] for artifact in initial["artifacts"])
+
+    original = applications.process_application
+    try:
+        applications.process_application = lambda application_id, run_id, parser=None: original(application_id, run_id, parser=FakeParser())
+        response = client.post("/api/applications/APPS-179/process")
+    finally:
+        applications.process_application = original
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == "APPS-179"
+    assert payload["source_type"] == "SAMPLE"
+    assert payload["processing_status"] == "COMPLETED"
+    run = payload["processing_runs"][0]
+    assert run["application_id"] == "APPS-179"
+    assert [event["status"] for event in run["events"]] == ["RECEIVED", "PARSING", "MAPPING", "COMPLETED"]
+    assert {artifact["processing_run_id"] for artifact in payload["artifacts"] if artifact["artifact_type"] != "ORIGINAL_PDF"} == {run["id"]}
+    assert {artifact["processing_run_id"] for artifact in payload["artifacts"] if artifact["artifact_type"] == "ORIGINAL_PDF"} == {None}
+    assert not any(application["id"].startswith("UPLOAD-") for application in client.get("/api/applications").json()["items"])
+
+
 def test_mapping_failure_records_mapping_step(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     first = upload(client, parser=FakeParser())
     monkeypatch.setattr(applications, "normalize_markdown", lambda _: (_ for _ in ()).throw(ValueError("정규화 실패")))
