@@ -18,6 +18,8 @@ describe("application intake", () => {
   });
 
   it("labels a ledger-only candidate without a PDF as unavailable for processing", () => {
+    const onSelect = vi.fn();
+
     render(<ProcessingList items={[{
       id: "APPS-1",
       candidate_token: "후보001",
@@ -34,8 +36,23 @@ describe("application intake", () => {
       ledger_metadata: { channel: "원티드", applied_at: "2026-06-18" },
       created_at: null,
       updated_at: null,
-    }]} selectedId="" onSelect={vi.fn()} />);
+    }]} selectedId="" onSelect={onSelect} />);
 
     expect(screen.getByText("원장 데이터만 있음")).toBeInTheDocument();
+    const applicationButton = screen.getByRole("button", { name: /후보001/ });
+    expect(applicationButton).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(applicationButton);
+    expect(onSelect).toHaveBeenCalledWith("APPS-1");
+  });
+
+  it("keeps the processing list body at 80vh with a scrollable body", () => {
+    render(<ProcessingList items={[]} selectedId="" onSelect={vi.fn()} />);
+
+    const card = screen.getByText("지원서 처리 목록").closest('[data-slot="card"]');
+    const content = card?.querySelector('[data-slot="card-content"]');
+
+    expect(card).toHaveClass("min-h-0");
+    expect(content).toHaveClass("h-[80vh]", "flex-none", "min-h-0", "overflow-y-auto");
   });
 });

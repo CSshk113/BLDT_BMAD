@@ -26,7 +26,15 @@ export type ApiCriteriaVersion = {
 };
 
 export type ApiPreview = {
-  mappings: Array<{ mapping_status: "RECEIVED" | "COMPLETED" | "INVALIDATED" }>;
+  mappings: Array<{
+    application_id: string;
+    applicant_label: string;
+    criterion_item_id: string;
+    citation: string;
+    location: string;
+    evidence_status: string;
+    mapping_status: "RECEIVED" | "COMPLETED" | "INVALIDATED";
+  }>;
 };
 
 export type ReviewerRole = "HR" | "HM";
